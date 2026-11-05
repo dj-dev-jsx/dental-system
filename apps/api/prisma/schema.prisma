@@ -53,13 +53,33 @@ model User {
   role         UserRole
   // Staff who leave are deactivated, never deleted: records still point to them.
   isActive     Boolean  @default(true) @map("is_active")
+  // After too many wrong passwords the account is locked for a while.
+  failedLogins Int      @default(0) @map("failed_logins")
+  lockedUntil  DateTime? @map("locked_until") @db.Timestamptz(3)
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Restrict)
+  clinic   Clinic    @relation(fields: [clinicId], references: [id], onDelete: Restrict)
+  sessions Session[]
 
   @@unique([clinicId, id])
   @@map("users")
+}
+
+// One row per logged-in device. Deleting the row ends that login immediately.
+model Session {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  // SHA-256 of the cookie's token, so a leaked database copy can't be used to log in.
+  tokenHash String   @unique @map("token_hash") @db.Char(64)
+  userId    String   @map("user_id") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // Sessions aren't medical records, so unlike everything else these may be deleted.
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
 }
 
 model Patient {
