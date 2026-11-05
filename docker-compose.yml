@@ -1,0 +1,22 @@
+services:
+  db:
+    image: mysql:8.4
+    container_name: dental-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      # 3307 on the host, because a Windows MySQL service already uses 3306
+      - "127.0.0.1:3307:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    volumes:
+      - dental_mysql_data:/var/lib/mysql
+
+volumes:
+  dental_mysql_data:
