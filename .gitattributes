@@ -1,0 +1,2 @@
+# Linux runs these inside Docker. Windows line endings would break them.
+*.sh text eol=lf

@@ -1,5 +1,7 @@
 node_modules/
 dist/
+apps/api/src/generated/
+*.tsbuildinfo
 .env
 .env.*
 !.env.example
