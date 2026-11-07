@@ -1,7 +1,7 @@
 import { type ComponentType, type SVGProps, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { buttonOnDark } from '../components/buttons'
-import { AlertIcon, CalendarIcon, InboxIcon, ListIcon, PeopleIcon, PlusIcon, ToothIcon } from '../components/icons'
+import { AlertIcon, CalendarIcon, InboxIcon, ListIcon, PeopleIcon, PlusIcon } from '../components/icons'
 import { MiniMonth } from '../components/MiniMonth'
 import { PRODUCT_NAME } from '../config'
 import { useRequestCount } from '../features/appointments/queries'
@@ -36,7 +36,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     { to: '/app/appointments', label: 'Schedule', icon: CalendarIcon },
     { to: '/app/requests', label: 'Requests', icon: InboxIcon, count: requestCount },
     { to: '/app/patients', label: 'Patients', icon: PeopleIcon },
-    { to: '/app/chart', label: 'Sample chart', icon: ToothIcon },
   ]
   const adminItems: Item[] = user.role === 'ADMIN' ? [{ to: '/app/activity', label: 'Activity log', icon: ListIcon }] : []
 
@@ -91,14 +90,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex h-full flex-col bg-neutral-950 text-white">
-      {/* The clinic, over one of the Lightbox's black-and-white photographs. */}
-      <div className="relative h-28 shrink-0 overflow-hidden">
-        <img src="/images/xray-lightbox-1200.jpg" alt="" className="absolute inset-0 size-full object-cover opacity-55" />
-        <div className="absolute inset-0 bg-linear-to-t from-neutral-950 via-neutral-950/55 to-neutral-950/10" />
-        <div className="relative flex h-full flex-col justify-end px-5 pb-3">
-          <p className="text-xs font-medium text-neutral-400">{PRODUCT_NAME}</p>
-          <p className="truncate text-base/6 font-semibold">{user.clinicName}</p>
-        </div>
+      {/* The clinic's name heads the sidebar; the product's name sits quietly under it. */}
+      <div className="shrink-0 px-5 pt-5 pb-1">
+        <p className="truncate text-base/6 font-semibold">{user.clinicName}</p>
+        <p className="text-xs text-neutral-500">{PRODUCT_NAME}</p>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-4 [scrollbar-color:var(--color-neutral-700)_transparent] [scrollbar-width:thin]">

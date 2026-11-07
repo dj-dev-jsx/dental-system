@@ -27,6 +27,9 @@ const ACTIONS: Record<string, string> = {
   APPOINTMENT_CONFIRMED: 'confirmed an appointment',
   APPOINTMENT_DECLINED: 'declined a request',
   APPOINTMENT_CANCELLED: 'cancelled an appointment',
+  CHART_VIEWED: 'opened a dental chart',
+  TOOTH_RECORDED: 'recorded a finding on a chart',
+  TOOTH_CORRECTED: 'corrected a chart entry',
 }
 
 const FAILURE_REASONS: Record<string, string> = {
@@ -41,6 +44,9 @@ function recordLink(entry: AuditEntry) {
   // Looking at appointments is logged against the patient whose appointments they were.
   if (entry.action.startsWith('PATIENT_') || entry.action === 'APPOINTMENT_LISTED') {
     return { to: `/app/patients/${entry.entityId}`, label: 'Patient' }
+  }
+  if (entry.action === 'CHART_VIEWED' || entry.action.startsWith('TOOTH_')) {
+    return { to: `/app/patients/${entry.entityId}/chart`, label: 'Chart' }
   }
   if (entry.action.startsWith('APPOINTMENT_')) return { to: `/app/appointments/${entry.entityId}`, label: 'Appointment' }
   return null

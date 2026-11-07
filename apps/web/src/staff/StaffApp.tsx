@@ -18,8 +18,8 @@ import PatientsPage from '../features/patients/PatientsPage'
 import { ApiError } from '../lib/api'
 import { Sidebar } from './Sidebar'
 
-// The 3D chart is most of the app's download, so it only loads when someone opens it.
-const Workspace = lazy(() => import('../Workspace'))
+// The dental chart (and its 3D model) is most of the app's download, so it only loads when opened.
+const ChartPage = lazy(() => import('../features/dental-chart/ChartPage'))
 
 // Try again only when the server couldn't be reached or failed. A 404 or 403 won't change.
 function shouldRetry(failureCount: number, error: Error) {
@@ -91,8 +91,8 @@ function StaffRoutes() {
       <Route path="patients/new" element={<NewPatientPage />} />
       <Route path="patients/:id" element={<PatientPage />} />
       <Route path="patients/:id/edit" element={<EditPatientPage />} />
+      <Route path="patients/:id/chart" element={<ChartPage />} />
       {user.role === 'ADMIN' && <Route path="activity" element={<ActivityPage />} />}
-      <Route path="chart" element={<Workspace />} />
       <Route path="*" element={<Navigate to="appointments" replace />} />
     </Routes>
   )

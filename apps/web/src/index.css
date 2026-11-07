@@ -99,3 +99,23 @@ input {
 .panel-in {
   animation: panel-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+/* The tooth callout: its line draws from the tooth to the label, then the label fades in. */
+@media (prefers-reduced-motion: no-preference) {
+  .callout-line {
+    stroke-dasharray: 1;
+    animation: callout-draw 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .callout-label {
+    animation: appear 220ms ease-out 180ms both;
+  }
+}
+
+@keyframes callout-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}

@@ -245,6 +245,9 @@ function DetailsPanel({ appointment, onClose, onChanged }: DetailsProps) {
         )}
 
         <div className="mt-8 flex flex-col gap-2 border-t border-neutral-200 pt-4 text-sm font-medium">
+          <Link to={`/app/patients/${appointment.patient.id}/chart`} className="underline underline-offset-3 hover:no-underline">
+            Open the dental chart
+          </Link>
           <Link to={`/app/patients/${appointment.patient.id}`} className="underline underline-offset-3 hover:no-underline">
             Open the patient’s record
           </Link>

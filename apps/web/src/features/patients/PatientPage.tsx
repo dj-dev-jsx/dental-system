@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { buttonOnLight, buttonOutline } from '../../components/buttons'
 import { Detail, Details } from '../../components/Details'
-import { AlertIcon, ArrowLeftIcon } from '../../components/icons'
+import { AlertIcon, ArrowLeftIcon, ToothIcon } from '../../components/icons'
 import { errorMessage } from '../../lib/api'
 import { ageLabel, formatDate, formatDateTime, fullName, SEX_LABELS } from '../../lib/format'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
@@ -85,7 +85,10 @@ export default function PatientPage() {
               </div>
             ) : (
               <>
-                <Link to={`/app/patients/${id}/edit`} className={`${buttonOnLight} h-9 px-4 text-sm`}>
+                <Link to={`/app/patients/${id}/chart`} className={`${buttonOnLight} h-9 px-4 text-sm`}>
+                  <ToothIcon className="size-4" /> Dental chart
+                </Link>
+                <Link to={`/app/patients/${id}/edit`} className={`${buttonOutline} h-9 px-4 text-sm`}>
                   Edit
                 </Link>
                 {isAdmin && (

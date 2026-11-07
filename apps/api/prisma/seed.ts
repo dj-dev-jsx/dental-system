@@ -118,5 +118,51 @@ await seedAppointments(CLINIC_A, [
   { id: '00000000-0000-7000-8000-0000a0000005', patientId: JUAN, dentistEmail: 'dentist2@clinic-a.example', day: 3, from: '15:00', to: '15:30', status: 'REQUESTED', reason: 'Braces consultation' },
 ]);
 
+// Maria's chart: a few years of findings, including one corrected by mistake.
+// Chart entries can never be changed, so a second run only adds what's missing.
+async function seedChart(clinicId: string, patientId: string) {
+  const dentist = await prisma.user.findUniqueOrThrow({ where: { email: 'dentist@clinic-a.example' } });
+  const daysAgo = (days: number) => new Date(Date.now() - days * 864e5);
+  const entry = (n: number, tooth: string, condition: 'DECAYED' | 'FILLED' | 'CROWN' | 'ROOT_CANAL' | 'MISSING' | 'EXTRACTED', days: number, extra: { surfaces?: ('MESIAL' | 'DISTAL' | 'OCCLUSAL')[]; note?: string } = {}) => ({
+    id: `00000000-0000-7000-8000-0000c0000${String(n).padStart(3, '0')}`,
+    clinicId,
+    patientId,
+    tooth,
+    condition,
+    recordedById: dentist.id,
+    recordedAt: daysAgo(days),
+    ...extra,
+  });
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.clinic_id', ${clinicId}, TRUE)`;
+    await tx.toothRecord.createMany({
+      skipDuplicates: true,
+      data: [
+        entry(1, '11', 'CROWN', 420, { note: 'Porcelain crown, done elsewhere' }),
+        entry(2, '38', 'MISSING', 420, { note: 'Never erupted' }),
+        entry(3, '48', 'EXTRACTED', 300),
+        entry(4, '26', 'FILLED', 200, { surfaces: ['OCCLUSAL'] }),
+        entry(5, '36', 'ROOT_CANAL', 120),
+        entry(6, '46', 'CROWN', 90),
+        entry(7, '16', 'DECAYED', 60, { surfaces: ['OCCLUSAL', 'DISTAL'], note: 'Deep, sensitive to cold' }),
+        entry(8, '16', 'FILLED', 30, { surfaces: ['OCCLUSAL', 'DISTAL'], note: 'Composite' }),
+        entry(9, '24', 'FILLED', 10, { surfaces: ['MESIAL'] }),
+      ],
+    });
+    // 24 was charted as filled by mistake: corrected to decayed, on the same date.
+    await tx.toothRecord.createMany({
+      skipDuplicates: true,
+      data: [
+        {
+          ...entry(10, '24', 'DECAYED', 10, { surfaces: ['MESIAL'] }),
+          correctsId: '00000000-0000-7000-8000-0000c0000009',
+          correctionReason: 'Charted as filled by mistake: it still needs filling',
+        },
+      ],
+    });
+  });
+}
+await seedChart(CLINIC_A, MARIA);
+
 await prisma.$disconnect();
 console.log('Seeded 2 fake clinics, each with an admin, two dentists, a receptionist, fake patients, and (in Clinic A) fake appointments.');
