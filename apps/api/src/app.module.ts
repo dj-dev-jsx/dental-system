@@ -6,6 +6,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { ClinicsController } from './clinics/clinics.controller.js';
 import { PatientsModule } from './patients/patients.module.js';
 import { AuditModule } from './audit/audit.module.js';
+import { AppointmentsModule } from './appointments/appointments.module.js';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AuditModule } from './audit/audit.module.js';
     AuthModule,
     PatientsModule,
     AuditModule,
+    AppointmentsModule,
   ],
   controllers: [HealthController, ClinicsController],
 })

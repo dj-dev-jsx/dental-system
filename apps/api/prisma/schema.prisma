@@ -41,6 +41,22 @@ enum AuditAction {
   PATIENT_UPDATED
   PATIENT_ARCHIVED
   PATIENT_RESTORED
+  APPOINTMENT_CREATED
+  APPOINTMENT_LISTED
+  APPOINTMENT_VIEWED
+  APPOINTMENT_UPDATED
+  APPOINTMENT_CONFIRMED
+  APPOINTMENT_DECLINED
+  APPOINTMENT_CANCELLED
+}
+
+// REQUESTED: asked for, waiting for the clinic. CONFIRMED: booked, and the dentist's time is
+// taken. DECLINED: the clinic said no to a request. CANCELLED: called off after all.
+enum AppointmentStatus {
+  REQUESTED
+  CONFIRMED
+  DECLINED
+  CANCELLED
 }
 
 model Clinic {
@@ -52,9 +68,10 @@ model Clinic {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  users     User[]
-  patients  Patient[]
-  auditLogs AuditLog[]
+  users        User[]
+  patients     Patient[]
+  auditLogs    AuditLog[]
+  appointments Appointment[]
 
   @@map("clinics")
 }
@@ -76,8 +93,9 @@ model User {
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   clinic    Clinic     @relation(fields: [clinicId], references: [id], onDelete: Restrict)
-  sessions  Session[]
-  auditLogs AuditLog[]
+  sessions     Session[]
+  auditLogs    AuditLog[]
+  appointments Appointment[]
 
   @@unique([clinicId, id])
   @@map("users")
@@ -120,7 +138,8 @@ model Patient {
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Restrict)
+  clinic       Clinic        @relation(fields: [clinicId], references: [id], onDelete: Restrict)
+  appointments Appointment[]
 
   @@unique([clinicId, id])
   @@index([clinicId, lastName, firstName])
@@ -150,4 +169,39 @@ model AuditLog {
   @@index([clinicId, entityId, createdAt])
   @@index([clinicId, createdAt])
   @@map("audit_logs")
+}
+
+// A visit to one dentist at one time. Its migration adds rules Prisma can't write here:
+//  - ends_at must come after starts_at;
+//  - a confirmed appointment must have a dentist;
+//  - two confirmed appointments for the same dentist can never overlap (an "exclusion
+//    constraint"), so even two receptionists booking the same slot at the same moment
+//    can't double-book. Requests may overlap: they don't take up the dentist's time yet.
+// Who created or changed an appointment is in the audit log, like everything else.
+model Appointment {
+  id         String            @id @default(uuid(7)) @db.Uuid
+  clinicId   String            @map("clinic_id") @db.Uuid
+  patientId  String            @map("patient_id") @db.Uuid
+  // Empty only for a request where the patient didn't mind which dentist.
+  dentistId  String?           @map("dentist_id") @db.Uuid
+  startsAt   DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt     DateTime          @map("ends_at") @db.Timestamptz(3)
+  status     AppointmentStatus @default(REQUESTED)
+  // What the visit is for, like "Cleaning" or "Tooth ache, lower left".
+  reason     String?           @db.VarChar(500)
+  // Why it was declined or cancelled.
+  statusNote String?           @map("status_note") @db.VarChar(500)
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  clinic  Clinic  @relation(fields: [clinicId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  // Two columns each, so the patient and the dentist must belong to the same clinic.
+  patient Patient @relation(fields: [clinicId, patientId], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
+  dentist User?   @relation(fields: [clinicId, dentistId], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([clinicId, id])
+  @@index([clinicId, startsAt])
+  @@index([clinicId, patientId, startsAt])
+  @@index([clinicId, status, startsAt])
+  @@map("appointments")
 }
