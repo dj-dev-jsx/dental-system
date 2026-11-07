@@ -12,7 +12,8 @@ const keys = {
   history: (id: string) => ['patients', 'history', id] as const,
 }
 
-export function usePatients(query: PatientListQuery) {
+/** `enabled: false` waits, such as until something is typed in a search box. */
+export function usePatients(query: PatientListQuery, { enabled = true } = {}) {
   const params = new URLSearchParams({ page: String(query.page) })
   if (query.search) params.set('search', query.search)
   if (query.archived) params.set('archived', 'true')
@@ -21,6 +22,7 @@ export function usePatients(query: PatientListQuery) {
     queryFn: () => api<Page<PatientSummary>>(`/patients?${params}`),
     // Keeps showing the last results while the next search or page loads, instead of a blank.
     placeholderData: keepPreviousData,
+    enabled,
   })
 }
 

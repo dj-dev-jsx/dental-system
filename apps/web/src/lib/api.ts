@@ -62,6 +62,9 @@ export function errorMessage(error: unknown): string {
     }
     if (error.status === 403) return 'Your role doesn’t allow this. Ask your clinic admin.'
     if (error.status === 404) return 'This record doesn’t exist, or the link is wrong.'
+    // A conflict, like a double booking. The API writes these messages for people.
+    const message = (error.details as { message?: unknown } | undefined)?.message
+    if (error.status === 409 && typeof message === 'string') return message
   }
   return 'Something went wrong on our side. Try again in a moment.'
 }

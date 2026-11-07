@@ -73,3 +73,29 @@ input {
     animation: none;
   }
 }
+
+/* The phone menu slides in from the left edge, where the sidebar lives on wider screens. */
+@keyframes slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+/* The calendar's side panel slides in from the right. */
+@keyframes panel-in {
+  from {
+    transform: translateX(1.5rem);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog[open],
+  .panel-in {
+    animation: none !important;
+  }
+}
+
+.panel-in {
+  animation: panel-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}

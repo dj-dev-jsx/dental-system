@@ -44,6 +44,10 @@ typography:
     fontFamily: "Schibsted Grotesk, ui-sans-serif, system-ui, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 600
+  micro:
+    fontFamily: "Schibsted Grotesk, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "0.6875rem"
+    fontWeight: 400
   numerals:
     fontFamily: "Schibsted Grotesk, ui-sans-serif, system-ui, sans-serif"
     fontSize: "0.875rem"
@@ -154,6 +158,7 @@ On black, secondary text uses white at reduced opacity (80 to 85%) or neutral-30
 - **Lead** (400, 1.125rem, 1.75): the paragraph under a headline; at most about 42rem wide.
 - **Body** (400, 1rem, 1.5): everything else.
 - **Label** (600, 0.875rem): form labels and list group names; nav links use 500.
+- **Micro** (400, 0.6875rem): calendar furniture only: the hour labels down the time grid and the weekday letters of the sidebar's month. Never for content.
 
 ### Named Rules
 **The One Family Rule.** Every word is Schibsted Grotesk. Hierarchy comes from size and weight, never from a second face, italics or letter-spaced capitals.
@@ -161,6 +166,8 @@ On black, secondary text uses white at reduced opacity (80 to 85%) or neutral-30
 ## Layout
 
 Content sits in a 72rem container with 20px side gutters on phones and 40px from 640px up. Landing sections are separated by 96px of padding (128px from 640px). Two-column sections (heading beside a list) collapse to one column below 1024px.
+
+The staff app is a sidebar and a work area: a 15rem film-black column on the left, the white work area beside it, lit like the lightbox. Working pages sit in a 72rem (lists) or 64rem (records, forms) column inside the work area; the calendar alone fills it edge to edge. Below 1024px the sidebar folds behind a menu button in a 56px black bar.
 
 The sign-in screen is split from 1024px: the photograph fills the left and a 28rem white panel holds the form, the same arrangement as the app (chart stage left, tooth panel right). Below 1024px the photograph becomes a 160 to 208px band across the top.
 
@@ -199,13 +206,23 @@ Small, firm corners: 6px on buttons, inputs, alerts and notices; 4px on the smal
 
 ### Navigation
 - Over the hero photograph: the wordmark left; text links (500, white at 80%, white on hover) and a white Sign in button right. Text links hide on phones; the button stays.
-- In the staff app: a 56px white bar with a hairline bottom border. Product and clinic name left (hidden on narrow screens), then tabs: text links whose active tab has a 2px ink underline running to the bar's bottom edge. The staff member and an outlined Sign out sit right.
+- In the staff app: the **sidebar**, film-black (ink) with white text. At the top, a 112px band of the X-ray lightbox photograph under a black gradient carries the clinic's name, with the product name small above it. Then the white Book appointment button (the most common task, one click from anywhere), the main links (icon, label, and a white count pill for waiting requests; the current page gets a white 12% fill, others are neutral-400 brightening to white on hover), an Admin group for admins only, a hairline, and a small month for jumping to any day (today a white disc, the shown day a white ring). The staff member and an outlined Sign out sit at the foot. There is one Schedule for everyone: a dentist’s calendar simply opens on their own appointments, and the dentist list on the calendar switches to everyone.
+- On phones the sidebar opens as a `<dialog>` from the left (200ms ease-out slide), which keeps focus inside and closes on Escape; the black bar shows the menu button, with a white dot when requests are waiting, the clinic name, and a + to book.
 
 ### Tables and record details
 - **Tables:** column headings in graphite at label size over a 1px ink rule; rows separated by hairlines, a mist fill on hover; the row's name is the link. Less important columns drop out on narrow screens rather than scrolling sideways.
 - **Record details:** a heading over a 1px ink rule, then label and value pairs separated by hairlines (labels 11rem wide on larger screens, stacked on phones). Empty values read "Not recorded" in stone.
 - **Loading:** skeleton bars in mist where the content will be, never a spinner. Short "Loading…" text appears only if loading takes longer than 400ms.
 - **Empty states** say what's missing and what to do next, with the action button when there is one.
+
+### Calendar
+The schedule is a calendar like a desktop calendar app, in three views: **Day** (a column per dentist, plus Any dentist for requests that named none, so a gap in a column is that dentist's free time), **Week** (Monday to Sunday) and **Month** (six weeks, Monday first).
+- **Time grid:** 7 AM to 8 PM at 64px an hour, hour lines in hairline grey with a dotted half-hour, hours in micro type down a sticky left column, headings sticky on a 1px ink rule. Today's column has a mist fill; a 2px ink line with a dot marks the current minute.
+- **Appointments:** confirmed ones are solid ink blocks with white text, like exposed film; requests are white with a dashed ink outline, because they don't hold the time. Overlaps share the column side by side. The chosen one gets a 2px ink ring.
+- **Clicking:** the pointer previews the 15-minute slot under it (a faint ink fill, "+ 9:15 AM"); clicking opens a booking with the day, time and (in Day) dentist filled in, and draws the pending booking as a dashed block. Days that have passed take no clicks. Clicking an appointment opens its details.
+- **Dragging:** with a mouse, an appointment moves by dragging (snapping to 15 minutes; in Day, across dentist columns hands it to that dentist) and changes length by dragging its bottom edge. The original stays behind at 30% while a ghost shows where it lands and its new time; where it can't go (a past day, or a confirmed appointment into Any dentist) the ghost turns grey and says "Can't move here". Escape cancels. A drop saves at once, and an ink bar along the bottom says what moved, with Undo; a refused move says why in the same bar and the block returns. Past appointments don't move. On touch screens a press stays a tap, so scrolling isn't hijacked; there, and from the keyboard, Change on the appointment does the same job.
+- **Side panel:** bookings and details open in a 25rem panel on the right, never a pop-up, so the calendar stays in view. From 1280px it sits beside the calendar behind a hairline; narrower, it covers the calendar from the right (200ms slide) over a 30% black scrim, full width on phones. Escape or the close button shuts it.
+- **Month cells:** the date in a 28px circle (ink disc for today), then up to three lines of dot, short time ("9am") and name, then "2 more". A solid dot is confirmed, a ring is a request. Clicking a day opens it in Day.
 
 ### Confirming an action
 A reversible action like Archive asks inline, next to the button ("Archive this patient?" with Archive and Cancel), not in a pop-up dialog.
@@ -230,3 +247,4 @@ Line icons drawn for this app on a 20px grid with a 1.75 stroke and round caps (
 - **Don't** use cards, drop shadows or glass effects.
 - **Don't** add a second typeface or set labels in spaced capitals.
 - **Don't** put the 3D chart's code on the landing page; show the black-and-white render instead.
+- **Don't** put photographs on working surfaces (calendar, lists, forms). In the staff app they belong only in quiet places: the sidebar's band and empty states such as No requests waiting.
