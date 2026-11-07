@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Injectable } from '@nestjs/common';
+import { recordAudit } from '../audit/audit.js';
+import type { User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthenticatedUser } from './auth.types.js';
 import { verifyPassword } from './password.js';
@@ -41,48 +43,67 @@ export class AuthService {
 
   private async attemptLogin(email: string, password: string): Promise<string | null> {
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user || !user.isActive) return null;
+    // An unknown email isn't logged: it belongs to no clinic, so there's no log to put it in.
+    if (!user) return null;
+    if (!user.isActive) {
+      await this.recordFailure(user, { reason: 'ACCOUNT_DEACTIVATED' });
+      return null;
+    }
 
     const now = new Date();
-    if (user.lockedUntil && user.lockedUntil > now) return null;
+    if (user.lockedUntil && user.lockedUntil > now) {
+      await this.recordFailure(user, { reason: 'ACCOUNT_LOCKED' });
+      return null;
+    }
 
     if (!(await verifyPassword(user.passwordHash, password))) {
       const failedLogins = user.failedLogins + 1;
       const locked = failedLogins >= MAX_FAILED_LOGINS;
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: {
-          failedLogins: locked ? 0 : failedLogins,
-          lockedUntil: locked ? new Date(now.getTime() + LOCK_MS) : null,
-        },
+      await this.prisma.forClinic(user.clinicId, async (tx) => {
+        await tx.user.update({
+          where: { id: user.id },
+          data: {
+            failedLogins: locked ? 0 : failedLogins,
+            lockedUntil: locked ? new Date(now.getTime() + LOCK_MS) : null,
+          },
+        });
+        await recordAudit(tx, user, 'LOGIN_FAILED', {
+          metadata: { reason: 'WRONG_PASSWORD', accountLocked: locked },
+        });
       });
       return null;
     }
 
     const token = randomBytes(32).toString('base64url');
-    await this.prisma.$transaction([
+    await this.prisma.forClinic(user.clinicId, async (tx) => {
       // A good moment to clear this user's old sessions, since no background job does it.
-      this.prisma.session.deleteMany({
-        where: { userId: user.id, expiresAt: { lte: now } },
-      }),
-      this.prisma.session.create({
+      await tx.session.deleteMany({ where: { userId: user.id, expiresAt: { lte: now } } });
+      await tx.session.create({
         data: {
           userId: user.id,
           tokenHash: hashToken(token),
           expiresAt: new Date(now.getTime() + SESSION_LIFETIME_MS),
         },
-      }),
-      this.prisma.user.update({
+      });
+      await tx.user.update({
         where: { id: user.id },
         data: { failedLogins: 0, lockedUntil: null },
-      }),
-    ]);
+      });
+      await recordAudit(tx, user, 'LOGIN_SUCCEEDED');
+    });
     return token;
   }
 
-  async logout(token: string): Promise<void> {
-    await this.prisma.session.deleteMany({
-      where: { tokenHash: hashToken(token) },
+  private recordFailure(user: User, metadata: { reason: string }) {
+    return this.prisma.forClinic(user.clinicId, (tx) =>
+      recordAudit(tx, user, 'LOGIN_FAILED', { metadata }),
+    );
+  }
+
+  async logout(user: AuthenticatedUser, token: string): Promise<void> {
+    await this.prisma.forClinic(user.clinicId, async (tx) => {
+      await tx.session.deleteMany({ where: { tokenHash: hashToken(token) } });
+      await recordAudit(tx, user, 'LOGOUT');
     });
   }
 
@@ -92,13 +113,15 @@ export class AuthService {
       where: { tokenHash: hashToken(token) },
       select: {
         expiresAt: true,
-        user: { select: { ...USER_FIELDS, isActive: true } },
+        user: {
+          select: { ...USER_FIELDS, isActive: true, clinic: { select: { name: true } } },
+        },
       },
     });
     if (!session || session.expiresAt <= new Date() || !session.user.isActive) {
       return null;
     }
-    const { isActive: _isActive, ...user } = session.user;
-    return user;
+    const { isActive: _isActive, clinic, ...user } = session.user;
+    return { ...user, clinicName: clinic.name };
   }
 }

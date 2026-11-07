@@ -53,10 +53,12 @@ export class AuthController {
   @Post('logout')
   @HttpCode(204)
   async logout(
+    @CurrentUser() user: AuthenticatedUser,
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
     await this.auth.logout(
+      user,
       (request.cookies as Record<string, string>)[SESSION_COOKIE],
     );
     response.clearCookie(SESSION_COOKIE, { path: '/' });

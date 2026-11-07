@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-07T22:00:00+08:00",
+  "title": "Design System: Dental Records",
+  "extensions": {
+    "colorMeta": {
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "oklch(14.5% 0 0)", "tonalRamp": ["oklch(14.5% 0 0)", "oklch(20.5% 0 0)", "oklch(26.9% 0 0)", "oklch(37.1% 0 0)", "oklch(43.9% 0 0)", "oklch(55.6% 0 0)", "oklch(70.8% 0 0)", "oklch(87% 0 0)"] },
+      "paper": { "role": "neutral", "displayName": "Paper", "canonical": "oklch(100% 0 0)", "tonalRamp": ["oklch(87% 0 0)", "oklch(89% 0 0)", "oklch(92.2% 0 0)", "oklch(94% 0 0)", "oklch(96% 0 0)", "oklch(97% 0 0)", "oklch(98.5% 0 0)", "oklch(100% 0 0)"] },
+      "mist": { "role": "neutral", "displayName": "Mist", "canonical": "oklch(97% 0 0)" },
+      "hairline": { "role": "neutral", "displayName": "Hairline", "canonical": "oklch(92.2% 0 0)" },
+      "rule": { "role": "neutral", "displayName": "Rule", "canonical": "oklch(87% 0 0)" },
+      "ash": { "role": "neutral", "displayName": "Ash", "canonical": "oklch(70.8% 0 0)" },
+      "stone": { "role": "neutral", "displayName": "Stone", "canonical": "oklch(55.6% 0 0)" },
+      "graphite": { "role": "neutral", "displayName": "Graphite", "canonical": "oklch(43.9% 0 0)" },
+      "charcoal": { "role": "neutral", "displayName": "Charcoal", "canonical": "oklch(37.1% 0 0)" },
+      "soot": { "role": "neutral", "displayName": "Soot", "canonical": "oklch(26.9% 0 0)" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The landing hero headline only." },
+      "headline": { "displayName": "Headline", "purpose": "Landing section headings." },
+      "title": { "displayName": "Title", "purpose": "The heading of a working screen, such as Sign in." },
+      "lead": { "displayName": "Lead", "purpose": "The paragraph under a headline." },
+      "body": { "displayName": "Body", "purpose": "Running text and controls." },
+      "label": { "displayName": "Label", "purpose": "Form labels and list group names." },
+      "numerals": { "displayName": "Numerals", "purpose": "FDI tooth numbers, tabular." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "state-change", "value": "150ms ease (colors)", "purpose": "Hover and active colour changes on buttons." },
+      { "name": "tooth-scan", "value": "700ms cubic-bezier(0.16, 1, 0.3, 1), delay 500ms + 55ms per tooth", "purpose": "A light passing along the hero's tooth numbers once on load. Off when reduced motion is preferred." },
+      { "name": "appear-late", "value": "200ms ease-out after 400ms", "purpose": "Loading messages appear only if loading is slow." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Button on dark",
+      "kind": "button",
+      "refersTo": "button-on-dark",
+      "description": "The main action over photographs and black sections.",
+      "html": "<button class=\"ds-btn-dark\">Sign in</button>",
+      "css": ".ds-btn-dark { display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 24px; background: #fff; color: #0a0a0a; font: 600 1rem/1 'Schibsted Grotesk', ui-sans-serif, system-ui, sans-serif; border: 0; border-radius: 6px; outline-color: #fff; transition: background-color 150ms; } .ds-btn-dark:hover { background: #e5e5e5; } .ds-btn-dark:active { background: #d4d4d4; } .ds-btn-dark:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Button on light",
+      "kind": "button",
+      "refersTo": "button-on-light",
+      "description": "The main action on white, such as Sign in on the form.",
+      "html": "<button class=\"ds-btn-light\">Sign in</button>",
+      "css": ".ds-btn-light { display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 24px; background: #0a0a0a; color: #fff; font: 600 1rem/1 'Schibsted Grotesk', ui-sans-serif, system-ui, sans-serif; border: 0; border-radius: 6px; outline-color: #0a0a0a; transition: background-color 150ms; } .ds-btn-light:hover { background: #262626; } .ds-btn-light:active { background: #404040; } .ds-btn-light:focus-visible { outline: 2px solid #0a0a0a; outline-offset: 2px; }"
+    },
+    {
+      "name": "Outline button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Quiet actions on white, such as Sign out.",
+      "html": "<button class=\"ds-btn-outline\">Sign out</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; background: #fff; color: #171717; font: 500 0.875rem/1 'Schibsted Grotesk', ui-sans-serif, system-ui, sans-serif; border: 1px solid #d4d4d4; border-radius: 6px; outline-color: #0a0a0a; transition: border-color 150ms, background-color 150ms; } .ds-btn-outline:hover { border-color: #0a0a0a; } .ds-btn-outline:active { background: #f5f5f5; } .ds-btn-outline:focus-visible { outline: 2px solid #0a0a0a; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Form fields, as on the sign-in screen.",
+      "html": "<label class=\"ds-field\"><span>Email</span><input type=\"email\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 6px; font: 600 0.875rem/1.4 'Schibsted Grotesk', ui-sans-serif, system-ui, sans-serif; color: #0a0a0a; } .ds-field input { height: 44px; padding: 0 12px; border: 1px solid #d4d4d4; border-radius: 6px; background: #fff; color: #0a0a0a; font: 400 1rem 'Schibsted Grotesk', ui-sans-serif, system-ui, sans-serif; caret-color: #0a0a0a; } .ds-field input:hover { border-color: #a1a1a1; } .ds-field input:focus { outline: none; border-color: #0a0a0a; box-shadow: 0 0 0 3px rgb(10 10 10 / 0.1); }"
+    },
+    {
+      "name": "Error alert",
+      "kind": "custom",
+      "refersTo": "alert-error",
+      "description": "Inverted, not red: names the problem and the recovery.",
+      "html": "<p class=\"ds-alert\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 20 20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\"><circle cx=\"10\" cy=\"10\" r=\"7.25\"/><path d=\"M10 6.25v4.5M10 13.6v.15\"/></svg>The email or password is wrong, or the account is locked.</p>",
+      "css": ".ds-alert { display: flex; gap: 12px; margin: 0; padding: 12px 14px; background: #0a0a0a; color: #fff; border-radius: 6px; font: 400 0.875rem/1.5 'Schibsted Grotesk', ui-sans-serif, system-ui, sans-serif; } .ds-alert svg { flex-shrink: 0; margin-top: 2px; }"
+    },
+    {
+      "name": "Tooth numbers",
+      "kind": "custom",
+      "description": "The FDI chart numbers as a decorative ruled grid; the product's signature graphic.",
+      "html": "<div class=\"ds-teeth\" aria-hidden=\"true\"><span>18</span><span>17</span><span>16</span><span>15</span><span>14</span><span>13</span><span>12</span><span class=\"mid\">11</span><span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span></div>",
+      "css": ".ds-teeth { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); padding: 0 8px; background: #0a0a0a; color: rgb(255 255 255 / 0.5); border-top: 1px solid rgb(255 255 255 / 0.25); font: 400 0.875rem 'Schibsted Grotesk', ui-sans-serif, system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-teeth span { padding: 10px 0; text-align: center; } .ds-teeth .mid { border-right: 1px solid rgb(255 255 255 / 0.25); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Lightbox",
+    "overview": "A dentist reads teeth on a lightbox: black film, white light, nothing else. The interface works the same way. Black and white carry everything, real black-and-white photographs of dental work are the backgrounds, and the dental chart is the only place colour appears, because there colour means something: the condition of a tooth.\n\nIt is modern and quiet rather than clinical-cold: one confident grotesk at large sizes, generous space, and 1px hairlines instead of boxes. Pages alternate black and white sections, so the scroll reads like turning film over a light. Working screens (sign-in, the app) keep the same palette with denser, plainer layouts.",
+    "keyCharacteristics": [
+      "Black, white and neutral greys only; colour lives inside the dental chart.",
+      "Black-and-white photography under black gradients, never tinted.",
+      "One family, Schibsted Grotesk, self-hosted; bold and tight at display sizes.",
+      "Hairline rules group content; no cards, no shadows.",
+      "FDI tooth numbers are the recurring graphic."
+    ],
+    "rules": [
+      { "name": "The No-Hue Rule", "body": "The interface has no accent colour. The only hues are the dental chart's condition colours (healthy, decayed, filled, crown, root canal, implant, missing, extracted), and they appear only in the chart and its legend.", "section": "colors" },
+      { "name": "The Darkroom Rule", "body": "Photographs are shown in black and white (downloaded desaturated), under black gradients where text sits on them. Never tint a photo or put colour text on one.", "section": "colors" },
+      { "name": "The One Family Rule", "body": "Every word is Schibsted Grotesk. Hierarchy comes from size and weight, never from a second face, italics or letter-spaced capitals.", "section": "typography" },
+      { "name": "The Hairline Rule", "body": "Group content with 1px rules (hairline on white, white at 25% on black), never with boxes, cards or shadows.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep every surface black, white or neutral grey; reserve hue for the dental chart's condition colours.",
+      "Do desaturate any photograph and darken it with a black gradient where text sits on it.",
+      "Do group with 1px hairlines and space; let headings sit on the section, not in a box.",
+      "Do use the black button on white and the white button on black, with a matching 2px focus outline.",
+      "Do say only what is true: features that don't exist yet go under \"Coming next\"."
+    ],
+    "donts": [
+      "Don't add an accent colour, coloured links or red errors; errors are inverted ink boxes.",
+      "Don't use cards, drop shadows or glass effects.",
+      "Don't add a second typeface or set labels in spaced capitals.",
+      "Don't put the 3D chart's code on the landing page; show the black-and-white render instead."
+    ]
+  }
+}

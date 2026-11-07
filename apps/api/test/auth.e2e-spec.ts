@@ -8,6 +8,7 @@ import { hashPassword } from '../src/auth/password.js';
 import { configureApp } from '../src/configure-app.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { ownerClient, resetDatabase } from './test-db.js';
 
 // Test-only routes, to prove how the guards treat routes nobody remembered to protect.
 @Controller('test-routes')
@@ -37,6 +38,7 @@ const RECEPTION_EMAIL = 'reception@test-clinic.example';
 describe('Auth (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  const owner = ownerClient();
   const http = () => request(app.getHttpServer());
   const login = (email: string, password = PASSWORD) =>
     http().post('/api/v1/auth/login').send({ email, password });
@@ -59,9 +61,7 @@ describe('Auth (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.session.deleteMany();
-    await prisma.user.deleteMany();
-    await prisma.clinic.deleteMany();
+    await resetDatabase(owner);
     const clinic = await prisma.clinic.create({ data: { name: 'Test Clinic' } });
     const passwordHash = await hashPassword(PASSWORD);
     await prisma.user.createMany({
@@ -74,6 +74,7 @@ describe('Auth (e2e)', () => {
 
   afterAll(async () => {
     await app.close();
+    await owner.$disconnect();
   });
 
   it('uses the test database, never development data', async () => {
@@ -101,6 +102,7 @@ describe('Auth (e2e)', () => {
     expect(me.body.email).toBe(ADMIN_EMAIL);
     expect(me.body.role).toBe('ADMIN');
     expect(me.body.clinicId).toBeTruthy();
+    expect(me.body.clinicName).toBe('Test Clinic');
     expect(JSON.stringify(me.body)).not.toContain('assword');
   });
 
@@ -199,6 +201,50 @@ describe('Auth (e2e)', () => {
     expect(user.lockedUntil!.getTime()).toBeGreaterThan(Date.now());
     // The other staff member's account is unaffected.
     await login(RECEPTION_EMAIL).expect(204);
+  });
+
+  describe('audit log', () => {
+    const logs = () =>
+      owner.auditLog.findMany({
+        orderBy: { createdAt: 'asc' },
+        select: { action: true, metadata: true, actor: { select: { email: true } } },
+      });
+
+    it('records logins, failures with their reason, and logouts', async () => {
+      const cookie = cookieFrom(await login(ADMIN_EMAIL).expect(204));
+      await http().post('/api/v1/auth/logout').set('Cookie', cookie).expect(204);
+      await login(ADMIN_EMAIL, 'wrong-password').expect(401);
+      await prisma.user.update({ where: { email: RECEPTION_EMAIL }, data: { isActive: false } });
+      await login(RECEPTION_EMAIL).expect(401);
+
+      expect(await logs()).toEqual([
+        { action: 'LOGIN_SUCCEEDED', metadata: null, actor: { email: ADMIN_EMAIL } },
+        { action: 'LOGOUT', metadata: null, actor: { email: ADMIN_EMAIL } },
+        {
+          action: 'LOGIN_FAILED',
+          metadata: { reason: 'WRONG_PASSWORD', accountLocked: false },
+          actor: { email: ADMIN_EMAIL },
+        },
+        {
+          action: 'LOGIN_FAILED',
+          metadata: { reason: 'ACCOUNT_DEACTIVATED' },
+          actor: { email: RECEPTION_EMAIL },
+        },
+      ]);
+    });
+
+    it('records the attempt that locks the account, and attempts while locked', async () => {
+      for (let i = 0; i < 5; i++) await login(ADMIN_EMAIL, 'wrong-password').expect(401);
+      await login(ADMIN_EMAIL).expect(401);
+      const entries = (await logs()).map((entry) => entry.metadata);
+      expect(entries.at(-2)).toEqual({ reason: 'WRONG_PASSWORD', accountLocked: true });
+      expect(entries.at(-1)).toEqual({ reason: 'ACCOUNT_LOCKED' });
+    });
+
+    it('logs nothing for an email that belongs to no account', async () => {
+      await login('nobody@test-clinic.example').expect(401);
+      expect(await logs()).toEqual([]);
+    });
   });
 
   it('lets the user back in after the lock expires', async () => {

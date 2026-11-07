@@ -15,6 +15,9 @@ datasource db {
 //  - Anything owned by a clinic has clinic_id and @@unique([clinicId, id]), so later tables
 //    can use a two-column foreign key that stops the database linking rows across clinics.
 //  - onDelete: Restrict. Deleting a clinic or user must never erase medical records.
+//  - A table holding patient data needs row-level security too. Prisma can't express that
+//    here, so its migration adds it by hand: copy the end of the add_patient_row_level_security
+//    migration. A test fails if a table with clinic_id doesn't have it.
 
 enum UserRole {
   ADMIN
@@ -28,6 +31,18 @@ enum Sex {
   MALE
 }
 
+enum AuditAction {
+  LOGIN_SUCCEEDED
+  LOGIN_FAILED
+  LOGOUT
+  PATIENT_CREATED
+  PATIENT_LISTED
+  PATIENT_VIEWED
+  PATIENT_UPDATED
+  PATIENT_ARCHIVED
+  PATIENT_RESTORED
+}
+
 model Clinic {
   id        String   @id @default(uuid(7)) @db.Uuid
   name      String   @db.VarChar(200)
@@ -37,8 +52,9 @@ model Clinic {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  users    User[]
-  patients Patient[]
+  users     User[]
+  patients  Patient[]
+  auditLogs AuditLog[]
 
   @@map("clinics")
 }
@@ -59,8 +75,9 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  clinic   Clinic    @relation(fields: [clinicId], references: [id], onDelete: Restrict)
-  sessions Session[]
+  clinic    Clinic     @relation(fields: [clinicId], references: [id], onDelete: Restrict)
+  sessions  Session[]
+  auditLogs AuditLog[]
 
   @@unique([clinicId, id])
   @@map("users")
@@ -108,4 +125,29 @@ model Patient {
   @@unique([clinicId, id])
   @@index([clinicId, lastName, firstName])
   @@map("patients")
+}
+
+// Who did what, and when. The API's database login can only add and read rows here, so
+// nobody can quietly edit or remove the history through the app.
+// Updates keep each changed field's old and new value, so this table holds patient details
+// and needs the same protection as the patient records themselves.
+model AuditLog {
+  id          String      @id @default(uuid(7)) @db.Uuid
+  clinicId    String      @map("clinic_id") @db.Uuid
+  // For a login or logout, the account that was used.
+  actorUserId String      @map("actor_user_id") @db.Uuid
+  action      AuditAction
+  // The record acted on. Empty when an action covers many records, like a search.
+  entityId    String?     @map("entity_id") @db.Uuid
+  // Details of the action: an update's { changes: { field: { from, to } } }, or why a login failed.
+  metadata    Json?
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  // Two columns, so the database refuses a log entry whose actor is from another clinic.
+  actor  User   @relation(fields: [clinicId, actorUserId], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([clinicId, entityId, createdAt])
+  @@index([clinicId, createdAt])
+  @@map("audit_logs")
 }

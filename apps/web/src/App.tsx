@@ -1,18 +1,87 @@
-import { ToothPanel } from './features/dental-chart/components/ToothPanel'
-import { MOCK_CHART } from './features/dental-chart/model/mockChart'
-import { useChartStore } from './features/dental-chart/store'
-import { DentalChart3D } from './features/dental-chart/three/DentalChart3D'
+import { lazy, Suspense, useEffect } from 'react'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
+import { LoadErrorBoundary } from './components/LoadErrorBoundary'
+import { StaffUserContext, useAuthStore } from './features/auth/authStore'
+import { LoginScreen } from './features/auth/LoginScreen'
+import { UnreachableScreen } from './features/auth/UnreachableScreen'
+import LandingPage from './pages/LandingPage'
+
+// The staff area is only downloaded by people who sign in, so the public pages stay light.
+const loadStaffApp = () => import('./staff/StaffApp')
+const StaffApp = lazy(loadStaffApp)
+
+function Loading() {
+  return (
+    <div className="flex h-full items-center justify-center bg-white" aria-busy="true">
+      <p className="appear-late text-sm text-neutral-500">Loading…</p>
+    </div>
+  )
+}
+
+/** /sign-in: the form, or straight on to the app if already signed in. */
+function SignInRoute() {
+  const state = useAuthStore((store) => store.state)
+
+  // While someone types their password, download the staff area in the background, so it's
+  // ready by the time they're signed in, even on a slow connection.
+  useEffect(() => {
+    if (state.status !== 'signedOut') return
+    const timer = setTimeout(() => void loadStaffApp(), 1000)
+    return () => clearTimeout(timer)
+  }, [state.status])
+
+  switch (state.status) {
+    case 'checking':
+      return <Loading />
+    case 'unreachable':
+      return <UnreachableScreen />
+    case 'signedIn':
+      return <Navigate to="/app" replace />
+    case 'signedOut':
+      return <LoginScreen notice={state.notice} />
+  }
+}
+
+/** /app and everything under it: for signed-in staff only. */
+function StaffRoute() {
+  const state = useAuthStore((store) => store.state)
+
+  switch (state.status) {
+    case 'checking':
+      return <Loading />
+    case 'unreachable':
+      return <UnreachableScreen />
+    case 'signedOut':
+      return <Navigate to="/sign-in" replace />
+    case 'signedIn':
+      return (
+        <StaffUserContext value={state.user}>
+          <LoadErrorBoundary>
+            <Suspense fallback={<Loading />}>
+              <StaffApp />
+            </Suspense>
+          </LoadErrorBoundary>
+        </StaffUserContext>
+      )
+  }
+}
 
 export default function App() {
-  const selected = useChartStore((s) => s.selected)
-  const select = useChartStore((s) => s.select)
+  const checkSession = useAuthStore((store) => store.checkSession)
+
+  useEffect(() => {
+    void checkSession()
+  }, [checkSession])
 
   return (
-    <div className="flex h-full bg-slate-100">
-      <main className="relative min-w-0 flex-1 bg-[radial-gradient(circle_at_50%_48%,#1f2d44_0%,#0a101d_78%)]">
-        <DentalChart3D toothStates={MOCK_CHART} selected={selected} onSelect={select} />
-      </main>
-      <ToothPanel selected={selected} toothStates={MOCK_CHART} />
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/sign-in" element={<SignInRoute />} />
+        {/* The * lets the staff area handle /app/patients and the rest itself. */}
+        <Route path="/app/*" element={<StaffRoute />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   )
 }

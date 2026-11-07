@@ -5,6 +5,7 @@ import type { UserRole } from '../generated/prisma/client.js';
 export type AuthenticatedUser = {
   id: string;
   clinicId: string;
+  clinicName: string;
   email: string;
   firstName: string;
   lastName: string;
