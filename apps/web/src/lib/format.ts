@@ -48,3 +48,77 @@ export function listName(person: Named) {
 }
 
 export const SEX_LABELS = { FEMALE: 'Female', MALE: 'Male' } as const
+
+// Appointments. Times are exact moments from the API, shown as Philippine time. Days are
+// Philippine dates as 'YYYY-MM-DD'. The Philippines has no daylight saving time, so it is
+// always UTC+8.
+
+const MANILA = 'Asia/Manila'
+const TIME = new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: MANILA })
+const DAY_LONG = new Intl.DateTimeFormat('en-PH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
+const DAY_SHORT = new Intl.DateTimeFormat('en-PH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
+const MANILA_DATE = new Intl.DateTimeFormat('en-CA', { timeZone: MANILA })
+const MANILA_CLOCK = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: MANILA })
+
+const utcDay = (date: string) => new Date(`${date}T00:00:00Z`)
+
+/** "9:00 – 9:30 AM" */
+export function formatTimeRange(startsAt: string, endsAt: string) {
+  return TIME.formatRange(new Date(startsAt), new Date(endsAt))
+}
+
+/** "Tuesday, November 10, 2026" */
+export function formatDayLong(date: string) {
+  return DAY_LONG.format(utcDay(date))
+}
+
+/** "Tue, Nov 10" */
+export function formatDayShort(date: string) {
+  return DAY_SHORT.format(utcDay(date))
+}
+
+/** "Nov 9 – 15, 2026" */
+export function formatDateRange(from: string, to: string) {
+  return DATE.formatRange(utcDay(from), utcDay(to))
+}
+
+/** The Philippine date of a moment, as 'YYYY-MM-DD'. */
+export function manilaDate(iso: string) {
+  return MANILA_DATE.format(new Date(iso))
+}
+
+/** The Philippine clock time of a moment, as 'HH:MM' (24-hour), the way a time box holds it. */
+export function manilaClock(iso: string) {
+  return MANILA_CLOCK.format(new Date(iso))
+}
+
+/** A Philippine date and clock time, plus some minutes, as an exact moment for the API. */
+export function manilaMoment(date: string, clock: string, plusMinutes = 0) {
+  const moment = new Date(`${date}T${clock}:00+08:00`)
+  return new Date(moment.getTime() + plusMinutes * 60_000).toISOString()
+}
+
+export function minutesBetween(startsAt: string, endsAt: string) {
+  return Math.round((Date.parse(endsAt) - Date.parse(startsAt)) / 60_000)
+}
+
+export function addDays(date: string, days: number) {
+  const day = utcDay(date)
+  day.setUTCDate(day.getUTCDate() + days)
+  return day.toISOString().slice(0, 10)
+}
+
+/** The Monday of the week a date is in. Clinic weeks run Monday to Sunday. */
+export function mondayOf(date: string) {
+  return addDays(date, -((utcDay(date).getUTCDay() + 6) % 7))
+}
+
+/** True for a real 'YYYY-MM-DD' date, such as one typed into the address bar. */
+export function isDate(text: string | null): text is string {
+  return Boolean(text && /^\d{4}-\d{2}-\d{2}$/.test(text) && !Number.isNaN(Date.parse(text)))
+}
+
+/** "Dr. Jose Santos" */
+export function dentistName(dentist: { firstName: string; lastName: string }) {
+  return `Dr. ${dentist.firstName} ${dentist.lastName}`
+}

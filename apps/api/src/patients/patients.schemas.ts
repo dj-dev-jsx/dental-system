@@ -1,11 +1,6 @@
 import { z } from 'zod';
+import { todayInManila } from '../common/manila.js';
 import { Sex } from '../generated/prisma/client.js';
-
-// The clinic is in the Philippines, so "today" means today there. The server's clock is
-// usually UTC, which would refuse a baby registered before 8 AM Manila time.
-function todayInManila() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
-}
 
 const name = z.string().trim().min(1).max(100);
 const optionalText = (max: number) => z.string().trim().min(1).max(max).nullable().optional();
@@ -22,6 +17,8 @@ const patientFields = {
   lastName: name,
   suffix: optionalText(20),
   // Dates stay as 'YYYY-MM-DD' strings, so comparing them as text compares them as dates.
+  // "Today" means today in the Philippines: the server's clock is usually UTC, which would
+  // refuse a baby registered before 8 AM Manila time.
   birthDate: z.iso
     .date()
     .refine((date) => date >= '1900-01-01', 'Birth date is too far in the past')

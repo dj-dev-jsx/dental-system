@@ -160,6 +160,17 @@ describe('Row-level security', () => {
       ).rejects.toThrow(/permission denied/);
     });
 
+    it("won't delete an appointment, and hides another clinic's", async () => {
+      const times = { startsAt: new Date('2030-01-01T01:00:00Z'), endsAt: new Date('2030-01-01T02:00:00Z') };
+      const own = await owner.appointment.create({ data: { clinicId: clinicA, patientId: patientA, ...times } });
+      await owner.appointment.create({ data: { clinicId: clinicB, patientId: patientB, ...times } });
+      const visible = await app.forClinic(clinicA, (tx) => tx.appointment.findMany());
+      expect(visible.map((appointment) => appointment.id)).toEqual([own.id]);
+      await expect(
+        app.forClinic(clinicA, (tx) => tx.appointment.delete({ where: { id: own.id } })),
+      ).rejects.toThrow(/permission denied/);
+    });
+
     it('lets the audit log grow, but never changes or removes a line', async () => {
       const entry = await app.forClinic(clinicA, (tx) =>
         tx.auditLog.create({

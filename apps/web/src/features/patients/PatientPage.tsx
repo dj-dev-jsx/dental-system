@@ -1,31 +1,15 @@
-import { type ReactNode, useState } from 'react'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { buttonOnLight, buttonOutline } from '../../components/buttons'
-import { AlertIcon, ArrowLeftIcon } from '../../components/icons'
+import { Detail, Details } from '../../components/Details'
+import { AlertIcon, ArrowLeftIcon, ToothIcon } from '../../components/icons'
 import { errorMessage } from '../../lib/api'
 import { ageLabel, formatDate, formatDateTime, fullName, SEX_LABELS } from '../../lib/format'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
+import { PatientAppointments } from '../appointments/PatientAppointments'
 import { useStaffUser } from '../auth/authStore'
 import { PatientHistory } from './PatientHistory'
 import { usePatient, useSetArchived } from './queries'
-
-function Detail({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="grid gap-1 border-b border-neutral-200 py-3 sm:grid-cols-[11rem_1fr] sm:gap-6">
-      <dt className="text-sm text-neutral-600">{label}</dt>
-      <dd className="break-words">{children || <span className="text-neutral-500">Not recorded</span>}</dd>
-    </div>
-  )
-}
-
-function Details({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section>
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <dl className="mt-3 border-t border-neutral-950">{children}</dl>
-    </section>
-  )
-}
 
 export default function PatientPage() {
   const { id = '' } = useParams()
@@ -101,7 +85,10 @@ export default function PatientPage() {
               </div>
             ) : (
               <>
-                <Link to={`/app/patients/${id}/edit`} className={`${buttonOnLight} h-9 px-4 text-sm`}>
+                <Link to={`/app/patients/${id}/chart`} className={`${buttonOnLight} h-9 px-4 text-sm`}>
+                  <ToothIcon className="size-4" /> Dental chart
+                </Link>
+                <Link to={`/app/patients/${id}/edit`} className={`${buttonOutline} h-9 px-4 text-sm`}>
                   Edit
                 </Link>
                 {isAdmin && (
@@ -123,6 +110,8 @@ export default function PatientPage() {
       )}
 
       <div className="mt-10 grid gap-10">
+        <PatientAppointments patientId={id} canBook={!archived} />
+
         <Details title="Contact">
           <Detail label="Mobile or phone">{patient.phone}</Detail>
           <Detail label="Email">{patient.email}</Detail>

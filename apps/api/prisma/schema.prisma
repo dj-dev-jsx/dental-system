@@ -41,6 +41,47 @@ enum AuditAction {
   PATIENT_UPDATED
   PATIENT_ARCHIVED
   PATIENT_RESTORED
+  APPOINTMENT_CREATED
+  APPOINTMENT_LISTED
+  APPOINTMENT_VIEWED
+  APPOINTMENT_UPDATED
+  APPOINTMENT_CONFIRMED
+  APPOINTMENT_DECLINED
+  APPOINTMENT_CANCELLED
+  CHART_VIEWED
+  TOOTH_RECORDED
+  TOOTH_CORRECTED
+}
+
+// What a dentist found or did to a whole tooth. The 3D chart colours each tooth by its latest one.
+enum ToothCondition {
+  HEALTHY
+  DECAYED
+  FILLED
+  CROWN
+  ROOT_CANAL
+  IMPLANT
+  MISSING
+  EXTRACTED
+}
+
+// The sides of a tooth, for decay and fillings. Occlusal means the biting surface
+// (on front teeth it's called incisal); buccal is the cheek or lip side, lingual the tongue side.
+enum ToothSurface {
+  MESIAL
+  DISTAL
+  OCCLUSAL
+  BUCCAL
+  LINGUAL
+}
+
+// REQUESTED: asked for, waiting for the clinic. CONFIRMED: booked, and the dentist's time is
+// taken. DECLINED: the clinic said no to a request. CANCELLED: called off after all.
+enum AppointmentStatus {
+  REQUESTED
+  CONFIRMED
+  DECLINED
+  CANCELLED
 }
 
 model Clinic {
@@ -52,9 +93,11 @@ model Clinic {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  users     User[]
-  patients  Patient[]
-  auditLogs AuditLog[]
+  users        User[]
+  patients     Patient[]
+  auditLogs    AuditLog[]
+  appointments Appointment[]
+  toothRecords ToothRecord[]
 
   @@map("clinics")
 }
@@ -76,8 +119,10 @@ model User {
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   clinic    Clinic     @relation(fields: [clinicId], references: [id], onDelete: Restrict)
-  sessions  Session[]
-  auditLogs AuditLog[]
+  sessions     Session[]
+  auditLogs    AuditLog[]
+  appointments Appointment[]
+  toothRecords ToothRecord[]
 
   @@unique([clinicId, id])
   @@map("users")
@@ -120,7 +165,9 @@ model Patient {
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Restrict)
+  clinic       Clinic        @relation(fields: [clinicId], references: [id], onDelete: Restrict)
+  appointments Appointment[]
+  toothRecords ToothRecord[]
 
   @@unique([clinicId, id])
   @@index([clinicId, lastName, firstName])
@@ -150,4 +197,84 @@ model AuditLog {
   @@index([clinicId, entityId, createdAt])
   @@index([clinicId, createdAt])
   @@map("audit_logs")
+}
+
+// A visit to one dentist at one time. Its migration adds rules Prisma can't write here:
+//  - ends_at must come after starts_at;
+//  - a confirmed appointment must have a dentist;
+//  - two confirmed appointments for the same dentist can never overlap (an "exclusion
+//    constraint"), so even two receptionists booking the same slot at the same moment
+//    can't double-book. Requests may overlap: they don't take up the dentist's time yet.
+// Who created or changed an appointment is in the audit log, like everything else.
+model Appointment {
+  id         String            @id @default(uuid(7)) @db.Uuid
+  clinicId   String            @map("clinic_id") @db.Uuid
+  patientId  String            @map("patient_id") @db.Uuid
+  // Empty only for a request where the patient didn't mind which dentist.
+  dentistId  String?           @map("dentist_id") @db.Uuid
+  startsAt   DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt     DateTime          @map("ends_at") @db.Timestamptz(3)
+  status     AppointmentStatus @default(REQUESTED)
+  // What the visit is for, like "Cleaning" or "Tooth ache, lower left".
+  reason     String?           @db.VarChar(500)
+  // Why it was declined or cancelled.
+  statusNote String?           @map("status_note") @db.VarChar(500)
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  clinic  Clinic  @relation(fields: [clinicId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  // Two columns each, so the patient and the dentist must belong to the same clinic.
+  patient Patient @relation(fields: [clinicId, patientId], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
+  dentist User?   @relation(fields: [clinicId, dentistId], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  toothRecords ToothRecord[]
+
+  @@unique([clinicId, id])
+  // Lets a chart entry name the visit it was made in, and the database check it's this patient's.
+  @@unique([clinicId, patientId, id])
+  @@index([clinicId, startsAt])
+  @@index([clinicId, patientId, startsAt])
+  @@index([clinicId, status, startsAt])
+  @@map("appointments")
+}
+
+// One entry in a patient's dental chart: what was found on one tooth, by whom, and when.
+// Entries are permanent, like a paper chart written in pen: the API's login can add them but
+// never change or delete them. A mistake is fixed by a correction, a new entry that points at
+// the wrong one and says why; the wrong one stays in the history. Its migration adds checks
+// Prisma can't write here (see the end of add_dental_chart).
+model ToothRecord {
+  id               String          @id @default(uuid(7)) @db.Uuid
+  clinicId         String          @map("clinic_id") @db.Uuid
+  patientId        String          @map("patient_id") @db.Uuid
+  // FDI number, "11" to "48". Baby teeth ("51" to "85") come later.
+  tooth            String          @db.VarChar(2)
+  // Empty only on a correction that withdraws an entry with nothing in its place.
+  condition        ToothCondition?
+  surfaces         ToothSurface[]
+  note             String?         @db.VarChar(1000)
+  recordedById     String          @map("recorded_by_id") @db.Uuid
+  // The visit it was recorded in, when there was one.
+  appointmentId    String?         @map("appointment_id") @db.Uuid
+  // When the finding was made. A correction keeps the date of the entry it corrects, so it
+  // takes that entry's place in the tooth's timeline rather than looking like a new finding.
+  recordedAt       DateTime        @map("recorded_at") @db.Timestamptz(3)
+  correctsId       String?         @unique @map("corrects_id") @db.Uuid
+  correctionReason String?         @map("correction_reason") @db.VarChar(500)
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  clinic      Clinic       @relation(fields: [clinicId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  patient     Patient      @relation(fields: [clinicId, patientId], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
+  recordedBy  User         @relation(fields: [clinicId, recordedById], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Three columns, so the visit must be this patient's, in this clinic.
+  appointment Appointment? @relation(fields: [clinicId, patientId, appointmentId], references: [clinicId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Four columns, so a correction can only correct the same patient's same tooth.
+  corrects    ToothRecord? @relation("Correction", fields: [clinicId, patientId, tooth, correctsId], references: [clinicId, patientId, tooth, id], onDelete: Restrict, onUpdate: Restrict)
+  correctedBy ToothRecord? @relation("Correction")
+
+  @@unique([clinicId, id])
+  @@unique([clinicId, patientId, tooth, id])
+  @@unique([clinicId, patientId, tooth, correctsId])
+  @@index([clinicId, patientId, tooth, recordedAt])
+  @@map("tooth_records")
 }

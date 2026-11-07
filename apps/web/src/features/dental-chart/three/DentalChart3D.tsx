@@ -5,6 +5,7 @@ import { FDI_CODES, type FdiCode } from '../model/fdi'
 import type { ToothStatus } from '../model/status'
 import { JAW_HINGE, JAW_OPEN_RADIANS, jawOf } from './archLayout'
 import { buildGumGeometry } from './gumGeometry'
+import { type Anchor, AnchorTracker } from './AnchorTracker'
 import { Skull } from './Skull'
 import { ToothMesh } from './ToothMesh'
 import type { Jaw } from './toothShape'
@@ -15,6 +16,8 @@ type Props = {
   toothStates: Record<FdiCode, ToothStatus>
   selected: FdiCode | null
   onSelect: (code: FdiCode | null) => void
+  /** Told where the selected tooth is on screen, for a label that points at it. */
+  onAnchor?: (anchor: Anchor | null) => void
 }
 
 function Gum({ jaw }: { jaw: Jaw }) {
@@ -26,7 +29,7 @@ function Gum({ jaw }: { jaw: Jaw }) {
   )
 }
 
-export function DentalChart3D({ toothStates, selected, onSelect }: Props) {
+export function DentalChart3D({ toothStates, selected, onSelect, onAnchor }: Props) {
   const teethIn = (jaw: Jaw) =>
     FDI_CODES.filter((code) => jawOf(code) === jaw).map((code) => (
       <ToothMesh
@@ -74,6 +77,8 @@ export function DentalChart3D({ toothStates, selected, onSelect }: Props) {
           {teethIn('lower')}
         </group>
       </group>
+
+      {onAnchor && <AnchorTracker code={selected} onAnchor={onAnchor} />}
 
       <OrbitControls
         makeDefault

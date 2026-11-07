@@ -9,6 +9,10 @@ const ACTIONS: Record<string, string> = {
   PATIENT_UPDATED: 'changed the record',
   PATIENT_ARCHIVED: 'archived the patient',
   PATIENT_RESTORED: 'restored the patient',
+  APPOINTMENT_LISTED: 'looked at their appointments',
+  CHART_VIEWED: 'opened the dental chart',
+  TOOTH_RECORDED: 'recorded a finding on the chart',
+  TOOTH_CORRECTED: 'corrected a chart entry',
 }
 
 const FIELDS: Record<string, string> = {
