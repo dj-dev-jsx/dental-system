@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type { AuditEntry, Page, Patient, PatientInput, PatientListQuery, PatientSummary } from './types'
 
@@ -17,12 +17,36 @@ export function usePatients(query: PatientListQuery, { enabled = true } = {}) {
   const params = new URLSearchParams({ page: String(query.page) })
   if (query.search) params.set('search', query.search)
   if (query.archived) params.set('archived', 'true')
+  params.set('sort', query.sort)
+  params.set('dir', query.dir)
   return useQuery({
     queryKey: keys.list(query),
     queryFn: () => api<Page<PatientSummary>>(`/patients?${params}`),
     // Keeps showing the last results while the next search or page loads, instead of a blank.
     placeholderData: keepPreviousData,
     enabled,
+  })
+}
+
+/** How many patients the workspace list fetches at a time. */
+export const LIST_PAGE_SIZE = 50
+
+/**
+ * The workspace list: pages are added to the end with "Show more" rather than replacing each
+ * other, so picking a patient further down never loses your place.
+ */
+export function usePatientList(query: Omit<PatientListQuery, 'page'>) {
+  return useInfiniteQuery({
+    queryKey: [...keys.list({ ...query, page: 0 }), 'all'],
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({ page: String(pageParam), limit: String(LIST_PAGE_SIZE), sort: query.sort, dir: query.dir })
+      if (query.search) params.set('search', query.search)
+      if (query.archived) params.set('archived', 'true')
+      return api<Page<PatientSummary>>(`/patients?${params}`)
+    },
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.page * last.limit < last.total ? last.page + 1 : undefined),
+    placeholderData: keepPreviousData,
   })
 }
 
@@ -45,8 +69,14 @@ export function useCreatePatient() {
   return useMutation({
     mutationFn: (input: PatientInput) => api<Patient>('/patients', { method: 'POST', json: input }),
     onSuccess: (patient) => {
-      // Cache the new record, so opening it next doesn't need another request.
-      queryClient.setQueryData(keys.one(patient.id), patient)
+      // Cache the new record, so opening it next doesn't need another request. A new
+      // patient has no appointments or chart yet.
+      queryClient.setQueryData<Patient>(keys.one(patient.id), {
+        ...patient,
+        nextAppointment: null,
+        lastVisitAt: null,
+        chartSummary: { counts: {}, latest: null },
+      })
       void queryClient.invalidateQueries({ queryKey: keys.lists })
     },
   })
@@ -57,7 +87,9 @@ export function useUpdatePatient(id: string) {
   return useMutation({
     mutationFn: (input: PatientInput) => api<Patient>(`/patients/${id}`, { method: 'PATCH', json: input }),
     onSuccess: (patient) => {
-      queryClient.setQueryData(keys.one(id), patient)
+      // A save answers with the patient only, so what the record already knew about
+      // appointments and the chart is kept.
+      queryClient.setQueryData<Patient>(keys.one(id), (old) => ({ ...old, ...patient }))
       void queryClient.invalidateQueries({ queryKey: keys.lists })
       void queryClient.invalidateQueries({ queryKey: keys.history(id) })
     },

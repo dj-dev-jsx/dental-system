@@ -4,10 +4,11 @@ import { Sex } from '../generated/prisma/client.js';
 
 const name = z.string().trim().min(1).max(100);
 const optionalText = (max: number) => z.string().trim().min(1).max(max).nullable().optional();
+export const PHONE_REGEX = /^\+?[0-9][0-9 ()-]{5,28}$/;
 const phone = z
   .string()
   .trim()
-  .regex(/^\+?[0-9][0-9 ()-]{5,28}$/, 'Invalid phone number')
+  .regex(PHONE_REGEX, 'Invalid phone number')
   .nullable()
   .optional();
 
@@ -51,6 +52,9 @@ export const listPatientsSchema = z.strictObject({
   // Query strings are always text, so coerce turns "2" into 2.
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(25),
+  // Sorting is chosen from a fixed list, never a column name from the request.
+  sort: z.enum(['name', 'nextAppointment', 'lastVisit']).default('name'),
+  dir: z.enum(['asc', 'desc']).default('asc'),
 });
 
 export const patientIdSchema = z.uuid();

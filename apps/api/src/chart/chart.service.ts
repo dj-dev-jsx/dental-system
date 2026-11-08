@@ -12,7 +12,7 @@ import type { CorrectToothInput, RecordToothInput } from './chart.schemas.js';
 
 // Every query filters by clinicId as well as relying on row-level security: two locks.
 
-const RECORD_FIELDS = {
+export const RECORD_FIELDS = {
   id: true,
   tooth: true,
   condition: true,
@@ -27,7 +27,7 @@ const RECORD_FIELDS = {
   correctedBy: { select: { id: true } },
 } satisfies Prisma.ToothRecordSelect;
 
-type ChartRecord = Prisma.ToothRecordGetPayload<{ select: typeof RECORD_FIELDS }>;
+export type ChartRecord = Prisma.ToothRecordGetPayload<{ select: typeof RECORD_FIELDS }>;
 
 /** What a tooth's chart says now. */
 export type ToothNow = {

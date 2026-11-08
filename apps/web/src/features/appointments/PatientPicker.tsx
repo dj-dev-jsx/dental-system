@@ -34,7 +34,7 @@ export function PatientPicker({ chosen, onChoose, error }: PickerProps) {
     moveFocus.current = null
   }, [chosen])
 
-  const results = usePatients({ search, page: 1, archived: false }, { enabled: search.length > 0 })
+  const results = usePatients({ search, page: 1, archived: false, sort: 'name', dir: 'asc' }, { enabled: search.length > 0 })
 
   // Waits until typing pauses, so each keystroke isn't its own search (and audit log line).
   function changeSearch(value: string) {

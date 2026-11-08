@@ -103,7 +103,7 @@ describe('Auth (e2e)', () => {
     expect(me.body.role).toBe('ADMIN');
     expect(me.body.clinicId).toBeTruthy();
     expect(me.body.clinicName).toBe('Test Clinic');
-    expect(JSON.stringify(me.body)).not.toContain('assword');
+    expect(JSON.stringify(me.body)).not.toMatch(/passwordHash|argon2/);
   });
 
   it('accepts an email typed with different capitals and spaces', async () => {
@@ -254,6 +254,90 @@ describe('Auth (e2e)', () => {
       data: { lockedUntil: new Date(Date.now() - 1000) },
     });
     await login(ADMIN_EMAIL).expect(204);
+  });
+
+  describe('my activity', () => {
+    it('lists only the caller own sign-ins, failures and password changes, newest first, max 10', async () => {
+      await http().get('/api/v1/auth/my-activity').expect(401);
+      await login(ADMIN_EMAIL, 'wrong-password-here').expect(401);
+      await login(RECEPTION_EMAIL).expect(204);
+      const cookie = cookieFrom(await login(ADMIN_EMAIL).expect(204));
+      const res = await http().get('/api/v1/auth/my-activity').set('Cookie', cookie).expect(200);
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(res.body.items.map((i: { action: string }) => i.action)).toEqual([
+        'LOGIN_SUCCEEDED',
+        'LOGIN_FAILED',
+      ]);
+      expect(res.body.items[1].reason).toBe('WRONG_PASSWORD');
+      expect(res.body.items[0].reason).toBeNull();
+      expect(Object.keys(res.body.items[0]).sort()).toEqual(['action', 'createdAt', 'id', 'reason']);
+      // The receptionist sees only their own line.
+      const desk = cookieFrom(await login(RECEPTION_EMAIL).expect(204));
+      const mine = await http().get('/api/v1/auth/my-activity').set('Cookie', desk).expect(200);
+      expect(mine.body.items).toHaveLength(2);
+      for (let i = 0; i < 12; i++) await login(ADMIN_EMAIL).expect(204);
+      const many = await http().get('/api/v1/auth/my-activity').set('Cookie', cookie).expect(200);
+      expect(many.body.items).toHaveLength(10);
+    });
+
+    it('is refused while a password change is pending', async () => {
+      await owner.user.update({ where: { email: ADMIN_EMAIL }, data: { mustChangePassword: true } });
+      const cookie = cookieFrom(await login(ADMIN_EMAIL).expect(204));
+      await http().get('/api/v1/auth/my-activity').set('Cookie', cookie).expect(403);
+    });
+  });
+
+  describe('change password', () => {
+    const NEW = 'another-long-password';
+
+    it('reports mustChangePassword on /me (false for normal users)', async () => {
+      const cookie = cookieFrom(await login(ADMIN_EMAIL).expect(204));
+      const me = await http().get('/api/v1/auth/me').set('Cookie', cookie).expect(200);
+      expect(me.body.mustChangePassword).toBe(false);
+    });
+
+    it('needs a login and a correct current password', async () => {
+      await http()
+        .post('/api/v1/auth/change-password')
+        .send({ currentPassword: PASSWORD, newPassword: NEW })
+        .expect(401);
+      const cookie = cookieFrom(await login(ADMIN_EMAIL).expect(204));
+      const res = await http()
+        .post('/api/v1/auth/change-password')
+        .set('Cookie', cookie)
+        .send({ currentPassword: 'not-the-password', newPassword: NEW })
+        .expect(400);
+      expect(res.body.message).toBe('Your current password is wrong.');
+      await login(ADMIN_EMAIL).expect(204); // still the old password
+    });
+
+    it('refuses short, long and unchanged new passwords', async () => {
+      const cookie = cookieFrom(await login(ADMIN_EMAIL).expect(204));
+      for (const newPassword of ['short', 'x'.repeat(129), PASSWORD]) {
+        await http()
+          .post('/api/v1/auth/change-password')
+          .set('Cookie', cookie)
+          .send({ currentPassword: PASSWORD, newPassword })
+          .expect(400);
+      }
+    });
+
+    it('changes the password, keeps this session, ends the others and audits', async () => {
+      const mine = cookieFrom(await login(ADMIN_EMAIL).expect(204));
+      const other = cookieFrom(await login(ADMIN_EMAIL).expect(204));
+      await http()
+        .post('/api/v1/auth/change-password')
+        .set('Cookie', mine)
+        .send({ currentPassword: PASSWORD, newPassword: NEW })
+        .expect(204);
+      await http().get('/api/v1/auth/me').set('Cookie', mine).expect(200);
+      await http().get('/api/v1/auth/me').set('Cookie', other).expect(401);
+      await login(ADMIN_EMAIL).expect(401);
+      await login(ADMIN_EMAIL, NEW).expect(204);
+      const lines = await owner.auditLog.findMany({ where: { action: 'PASSWORD_CHANGED' } });
+      expect(lines).toHaveLength(1);
+      expect(JSON.stringify(lines)).not.toContain(NEW);
+    });
   });
 });
 

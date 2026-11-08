@@ -7,6 +7,7 @@ import { fieldAria, textareaClass, textareaErrorClass } from '../../../component
 import { CloseIcon } from '../../../components/icons'
 import { errorMessage } from '../../../lib/api'
 import { dentistName, formatDayLong, formatTimeRange, fullName, manilaDate } from '../../../lib/format'
+import { useClinic } from '../../clinic/queries'
 import { ClosePanel, ConfirmPanel, StatusTag } from '../AppointmentActions'
 import { DentistField, WhenFields } from '../AppointmentFields'
 import { type FieldErrors, fieldErrorsFrom, hasPassed, readWhen } from '../appointmentInput'
@@ -89,6 +90,8 @@ type BookProps = {
 
 /** A booking for the slot that was clicked: the day, time and (in the day view) dentist are already filled in. */
 function BookPanel({ selection, onClose, onBooked }: BookProps) {
+  // New bookings start with the clinic's usual visit length.
+  const defaultVisitMinutes = useClinic().data?.defaultVisitMinutes ?? 30
   const dentists = useDentists()
   const create = useCreateAppointment()
   const [patient, setPatient] = useState<ChosenPatient | null>(null)
@@ -137,7 +140,7 @@ function BookPanel({ selection, onClose, onBooked }: BookProps) {
           ) : (
             <div className="mt-5 grid grid-cols-2 gap-4 [&>*:nth-child(-n+2)]:col-span-2">
               <DentistField idPrefix="panel-" dentists={items} defaultValue={dentistId} error={errors.dentistId} />
-              <WhenFields idPrefix="panel-" errors={errors} defaults={{ date: selection.date, time: clockOf(selection.minutes), duration: 30 }} />
+              <WhenFields idPrefix="panel-" errors={errors} defaults={{ date: selection.date, time: clockOf(selection.minutes), duration: defaultVisitMinutes }} />
             </div>
           )}
           <FormField id="panel-reason" label="Reason" hint="Optional. For example: Cleaning." error={errors.reason} className="mt-5">

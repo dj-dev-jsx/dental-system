@@ -5,7 +5,7 @@ import { recordAudit } from '../audit/audit.js';
 import type { User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthenticatedUser } from './auth.types.js';
-import { verifyPassword } from './password.js';
+import { hashPassword, verifyPassword } from './password.js';
 
 export const SESSION_LIFETIME_MS = 12 * 60 * 60 * 1000; // a working day, then log in again
 export const FAILED_LOGIN_MIN_MS = 400; // longer than a real password check takes
@@ -19,6 +19,7 @@ const USER_FIELDS = {
   firstName: true,
   lastName: true,
   role: true,
+  mustChangePassword: true,
 } as const;
 
 function hashToken(token: string) {
@@ -105,6 +106,65 @@ export class AuthService {
       await tx.session.deleteMany({ where: { tokenHash: hashToken(token) } });
       await recordAudit(tx, user, 'LOGOUT');
     });
+  }
+
+  /**
+   * Returns false if the current password is wrong. Otherwise saves the new one, clears the
+   * "must change" flag and signs the user out everywhere except this session.
+   */
+  async changePassword(
+    user: AuthenticatedUser,
+    token: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<boolean> {
+    const record = await this.prisma.user.findFirst({
+      where: { id: user.id, clinicId: user.clinicId },
+    });
+    if (!record || !(await verifyPassword(record.passwordHash, currentPassword))) return false;
+    const passwordHash = await hashPassword(newPassword);
+    await this.prisma.forClinic(user.clinicId, async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: { passwordHash, mustChangePassword: false },
+      });
+      await tx.session.deleteMany({
+        where: { userId: user.id, NOT: { tokenHash: hashToken(token) } },
+      });
+      await recordAudit(tx, user, 'PASSWORD_CHANGED', { entityId: user.id });
+    });
+    return true;
+  }
+
+  /** The caller's own recent sign-ins, failed attempts and password changes, newest first. */
+  async myActivity(user: AuthenticatedUser) {
+    const rows = await this.prisma.forClinic(user.clinicId, (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          clinicId: user.clinicId,
+          actorUserId: user.id,
+          action: { in: ['LOGIN_SUCCEEDED', 'LOGIN_FAILED', 'PASSWORD_CHANGED'] },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 10,
+        select: { id: true, action: true, createdAt: true, metadata: true },
+      }),
+    );
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        action: row.action,
+        createdAt: row.createdAt,
+        // Why a sign-in failed (wrong password, locked, ...). Nothing else from the metadata.
+        reason:
+          row.action === 'LOGIN_FAILED' &&
+          typeof row.metadata === 'object' &&
+          row.metadata !== null &&
+          typeof (row.metadata as { reason?: unknown }).reason === 'string'
+            ? (row.metadata as { reason: string }).reason
+            : null,
+      })),
+    };
   }
 
   /** Checked on every request, so deactivating a user takes effect immediately. */

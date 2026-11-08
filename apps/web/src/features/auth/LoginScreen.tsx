@@ -26,8 +26,6 @@ function signInErrorMessage(error: unknown) {
 
 // The boxes stay editable while signing in (only the button is disabled), so after a failed
 // try the cursor can go straight back into the password box.
-
-
 export function LoginScreen({ notice }: { notice?: string }) {
   const signIn = useAuthStore((store) => store.signIn)
   const [error, setError] = useState<string | null>(null)
@@ -97,6 +95,7 @@ export function LoginScreen({ notice }: { notice?: string }) {
               autoComplete="current-password"
               required
               maxLength={200}
+              aria-describedby={error ? 'sign-in-error' : undefined}
               className={`${inputClass} pr-16`}
             />
             <button
@@ -104,6 +103,7 @@ export function LoginScreen({ notice }: { notice?: string }) {
               onClick={() => setShowPassword((shown) => !shown)}
               aria-pressed={showPassword}
               aria-controls="password"
+              aria-label="Show password"
               className="absolute inset-y-1.5 right-1.5 rounded px-2.5 text-sm font-semibold text-neutral-700 outline-neutral-950 hover:bg-neutral-100 hover:text-neutral-950 focus-visible:outline-2"
             >
               {showPassword ? 'Hide' : 'Show'}
@@ -112,7 +112,7 @@ export function LoginScreen({ notice }: { notice?: string }) {
         </div>
 
         {error && (
-          <p className="flex gap-3 rounded-md bg-neutral-950 px-3.5 py-3 text-sm/6 text-white" role="alert">
+          <p id="sign-in-error" className="flex gap-3 rounded-md bg-neutral-950 px-3.5 py-3 text-sm/6 text-white" role="alert">
             <AlertIcon className="mt-0.5 shrink-0" />
             {error}
           </p>
@@ -122,6 +122,7 @@ export function LoginScreen({ notice }: { notice?: string }) {
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+      <p className="mt-6 text-sm text-neutral-600">Forgot your password? Ask your clinic admin to reset it for you.</p>
     </AuthLayout>
   )
 }

@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  BadRequestException,
   Get,
+  Header,
   HttpCode,
   Post,
   Req,
@@ -12,7 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
-import { CurrentUser, Public } from './auth.decorators.js';
+import { AllowWhenPasswordChangePending, CurrentUser, Public } from './auth.decorators.js';
 import { AuthService, SESSION_LIFETIME_MS } from './auth.service.js';
 import { type AuthenticatedUser, SESSION_COOKIE } from './auth.types.js';
 
@@ -21,6 +23,16 @@ const loginSchema = z.object({
   // The length cap stops someone sending a huge "password" to tie up the server.
   password: z.string().min(1).max(200),
 });
+
+const changePasswordSchema = z
+  .strictObject({
+    currentPassword: z.string().min(1).max(200),
+    newPassword: z.string().min(12).max(128),
+  })
+  .refine((v) => v.newPassword !== v.currentPassword, {
+    message: 'The new password must be different from the current one.',
+    path: ['newPassword'],
+  });
 
 @Controller('auth')
 export class AuthController {
@@ -50,6 +62,7 @@ export class AuthController {
     });
   }
 
+  @AllowWhenPasswordChangePending()
   @Post('logout')
   @HttpCode(204)
   async logout(
@@ -64,6 +77,29 @@ export class AuthController {
     response.clearCookie(SESSION_COOKIE, { path: '/' });
   }
 
+  // Same limit as login, since it checks a password too.
+  @AllowWhenPasswordChangePending()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('change-password')
+  @HttpCode(204)
+  async changePassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+    @Body({ schema: changePasswordSchema }) body: z.infer<typeof changePasswordSchema>,
+  ) {
+    const token = (request.cookies as Record<string, string>)[SESSION_COOKIE];
+    const ok = await this.auth.changePassword(user, token, body.currentPassword, body.newPassword);
+    if (!ok) throw new BadRequestException('Your current password is wrong.');
+  }
+
+  // Only the caller's own lines, so a person can spot someone else using their account.
+  @Get('my-activity')
+  @Header('Cache-Control', 'no-store')
+  myActivity(@CurrentUser() user: AuthenticatedUser) {
+    return this.auth.myActivity(user);
+  }
+
+  @AllowWhenPasswordChangePending()
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser) {
     return user;

@@ -1,47 +1,56 @@
-import { Link, useNavigate, useParams } from 'react-router'
-import { ArrowLeftIcon } from '../../components/icons'
+import { useNavigate, useParams } from 'react-router'
+import { buttonOutline } from '../../components/buttons'
+import { ErrorBox } from '../../components/ErrorBox'
+import { PageHeader } from '../../components/Page'
 import { errorMessage } from '../../lib/api'
 import { fullName } from '../../lib/format'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
+import { DetailPane } from './DetailPane'
+import { useWorkspaceLink } from './listParams'
 import { PatientForm } from './PatientForm'
 import { usePatient, useUpdatePatient } from './queries'
 
 export default function EditPatientPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
-  const { data: patient, isPending, isError, error } = usePatient(id)
+  const { data: patient, isPending, isError, error, refetch } = usePatient(id)
   const updatePatient = useUpdatePatient(id)
   useDocumentTitle(patient ? `Edit ${fullName(patient)}` : 'Edit patient')
+  const link = useWorkspaceLink()
+  const back = { to: link(`/app/patients/${id}`), label: 'Back to the record' }
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link to={`/app/patients/${id}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-neutral-600 hover:text-neutral-950">
-        <ArrowLeftIcon className="size-4" /> Back to the record
-      </Link>
+    <DetailPane narrow>
       {isPending ? (
-        <div className="mt-4 h-9 w-72 rounded bg-neutral-100" aria-busy="true" />
+        <div aria-busy="true" aria-label="Loading the record">
+          <div className="h-4 w-32 rounded bg-neutral-100" />
+          <div className="mt-6 h-9 w-72 rounded bg-neutral-100" />
+          <div className="mt-10 h-64 rounded bg-neutral-100" />
+        </div>
       ) : isError ? (
-        <p className="mt-6" role="alert">{errorMessage(error)}</p>
+        <PageHeader title="Edit patient" back={back}>
+          <ErrorBox className="mt-6">{errorMessage(error)}</ErrorBox>
+          <button type="button" onClick={() => void refetch()} className={`${buttonOutline} mt-4 h-9 px-4 text-sm`}>
+            Try again
+          </button>
+        </PageHeader>
       ) : patient.archivedAt ? (
-        <>
-          <h1 className="mt-4 text-3xl font-bold tracking-[-0.02em] text-balance">{fullName(patient)}</h1>
-          <p className="mt-4 text-neutral-600">Archived patients can’t be edited. An admin can restore the record first.</p>
-        </>
+        <PageHeader title={fullName(patient)} back={back} description="Archived patients can’t be edited. An admin can restore the record first." />
       ) : (
         <>
-          <h1 className="mt-4 text-3xl font-bold tracking-[-0.02em] text-balance">Edit {fullName(patient)}</h1>
+          <PageHeader title={`Edit ${fullName(patient)}`} back={back} />
           <PatientForm
             patient={patient}
             submitLabel="Save changes"
             submittingLabel="Saving…"
-            cancelTo={`/app/patients/${id}`}
+            cancelTo={back.to}
             onSubmit={async (input) => {
               await updatePatient.mutateAsync(input)
-              navigate(`/app/patients/${id}`, { replace: true })
+              void navigate(back.to, { replace: true })
             }}
           />
         </>
       )}
-    </div>
+    </DetailPane>
   )
 }

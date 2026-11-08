@@ -1,10 +1,12 @@
 import { type FormEvent, type InputHTMLAttributes, type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { buttonOnLight, buttonOutline } from '../../components/buttons'
-import { inputClass, inputErrorClass, textareaClass, textareaErrorClass } from '../../components/forms'
+import { ErrorBox } from '../../components/ErrorBox'
 import { AlertIcon } from '../../components/icons'
+import { fieldAria, inputClass, inputErrorClass, textareaClass, textareaErrorClass } from '../../components/forms'
 import { ApiError, errorMessage } from '../../lib/api'
 import { todayInManila } from '../../lib/format'
+import { useLeaveGuard } from '../clinic/useLeaveGuard'
 import type { Patient, PatientInput, Sex } from './types'
 
 // What to say under a field the server refused. The server's own wording is technical,
@@ -78,34 +80,31 @@ type FieldProps = {
   name: string
   label: string
   error?: string
+  hint?: string
   multiline?: boolean
   className?: string
 } & Omit<InputHTMLAttributes<HTMLInputElement>, 'name' | 'className'>
 
-function Field({ name, label, error, multiline = false, className = '', ...input }: FieldProps) {
-  const errorId = `${name}-error`
-  const shared = {
-    id: name,
-    name,
-    'aria-invalid': error ? true : undefined,
-    'aria-describedby': error ? errorId : undefined,
-  }
+function Field({ name, label, error, hint, multiline = false, className = '', required, ...input }: FieldProps) {
+  const shared = { id: name, name, ...fieldAria(name, error, hint) }
   return (
     <div className={`flex flex-col gap-1.5 ${className}`}>
       <label htmlFor={name} className="text-sm font-semibold">
         {label}
+        {required && <span className="ml-1.5 text-xs font-normal text-neutral-500">Required</span>}
       </label>
       {multiline ? (
-        <textarea
-          {...shared}
-          defaultValue={input.defaultValue}
-          className={error ? textareaErrorClass : textareaClass}
-        />
+        <textarea {...shared} defaultValue={input.defaultValue} className={error ? textareaErrorClass : textareaClass} />
       ) : (
-        <input {...shared} {...input} className={error ? inputErrorClass : inputClass} />
+        <input {...shared} {...input} required={required} className={error ? inputErrorClass : inputClass} />
+      )}
+      {hint && !error && (
+        <p id={`${name}-hint`} className="text-sm text-neutral-600">
+          {hint}
+        </p>
       )}
       {error && (
-        <p id={errorId} className="flex items-center gap-1.5 text-sm font-medium">
+        <p id={`${name}-error`} className="flex items-center gap-1.5 text-sm font-medium">
           <AlertIcon className="size-4 shrink-0" />
           {error}
         </p>
@@ -114,10 +113,13 @@ function Field({ name, label, error, multiline = false, className = '', ...input
   )
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
     <fieldset className="border-t border-neutral-950 pt-5">
-      <legend className="float-left w-full text-lg font-semibold">{title}</legend>
+      <legend className="float-left w-full text-lg font-semibold">
+        {title}
+        {hint && <span className="ml-3 text-sm font-normal text-neutral-600">{hint}</span>}
+      </legend>
       <div className="clear-both grid gap-5 pt-4 sm:grid-cols-2">{children}</div>
     </fieldset>
   )
@@ -136,6 +138,8 @@ export function PatientForm({ patient, submitLabel, submittingLabel, cancelTo, o
   const [errors, setErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  const guard = useLeaveGuard(dirty)
   const formRef = useRef<HTMLFormElement>(null)
 
   // After a refused save, put the cursor in the first field that needs fixing.
@@ -150,10 +154,13 @@ export function PatientForm({ patient, submitLabel, submittingLabel, cancelTo, o
     setErrors({})
     setFormError(null)
     try {
+      // Saved changes aren't "unsaved", so the page can move on without asking.
+      setDirty(false)
       await onSubmit(input)
       // On success the page moves on to the patient's record.
     } catch (error) {
       setSubmitting(false)
+      setDirty(true)
       const fields = error instanceof ApiError && error.status === 400 ? fieldErrorsFrom(error) : {}
       if (Object.keys(fields).length > 0) {
         setErrors(fields)
@@ -167,18 +174,13 @@ export function PatientForm({ patient, submitLabel, submittingLabel, cancelTo, o
   }
 
   return (
-    <form ref={formRef} noValidate onSubmit={handleSubmit} className="mt-8 flex flex-col gap-10">
-      <p className="text-neutral-600">Only the first and last name and the birth date are required.</p>
+    <form ref={formRef} noValidate onSubmit={handleSubmit} onInput={() => setDirty(true)} onChange={() => setDirty(true)} className="mt-8 flex flex-col gap-10">
+      <p className="text-neutral-600">Name and birth date are all you need to start. Everything else can be added later.</p>
 
-      {formError && (
-        <p className="flex gap-3 rounded-md bg-neutral-950 px-3.5 py-3 text-sm/6 text-white" role="alert">
-          <AlertIcon className="mt-0.5 shrink-0" />
-          {formError}
-        </p>
-      )}
+      {formError && <ErrorBox>{formError}</ErrorBox>}
 
       <Section title="Name">
-        <Field name="firstName" label="First name" autoComplete="off" required defaultValue={patient?.firstName} error={errors.firstName} />
+        <Field name="firstName" label="First name" autoComplete="off" autoFocus required defaultValue={patient?.firstName} error={errors.firstName} />
         <Field name="middleName" label="Middle name" autoComplete="off" defaultValue={patient?.middleName ?? ''} error={errors.middleName} />
         <Field name="lastName" label="Last name" autoComplete="off" required defaultValue={patient?.lastName} error={errors.lastName} />
         <Field name="suffix" label="Suffix" autoComplete="off" placeholder="Jr., Sr., III" defaultValue={patient?.suffix ?? ''} error={errors.suffix} />
@@ -194,6 +196,7 @@ export function PatientForm({ patient, submitLabel, submittingLabel, cancelTo, o
           max={todayInManila()}
           defaultValue={patient?.birthDate}
           error={errors.birthDate}
+          hint="Pick it from the calendar or type it, like 03/14/1985."
         />
         <fieldset aria-describedby={errors.sex ? 'sex-error' : undefined}>
           <legend className="text-sm font-semibold">Sex</legend>
@@ -220,14 +223,14 @@ export function PatientForm({ patient, submitLabel, submittingLabel, cancelTo, o
       </Section>
 
       <Section title="Contact">
-        <Field name="phone" label="Mobile or phone" type="tel" inputMode="tel" autoComplete="off" defaultValue={patient?.phone ?? ''} error={errors.phone} />
-        <Field name="email" label="Email" type="email" autoComplete="off" spellCheck={false} defaultValue={patient?.email ?? ''} error={errors.email} />
+        <Field name="phone" label="Mobile or phone" type="tel" inputMode="tel" autoComplete="off" hint="Like 0917 123 4567" defaultValue={patient?.phone ?? ''} error={errors.phone} />
+        <Field name="email" label="Email" type="email" autoComplete="off" spellCheck={false} hint="Optional" defaultValue={patient?.email ?? ''} error={errors.email} />
         <Field name="address" label="Address" multiline className="sm:col-span-2" defaultValue={patient?.address ?? ''} error={errors.address} />
       </Section>
 
-      <Section title="Emergency contact">
+      <Section title="Emergency contact" hint="Who to call if something happens during a visit">
         <Field name="emergencyContactName" label="Name" autoComplete="off" defaultValue={patient?.emergencyContactName ?? ''} error={errors.emergencyContactName} />
-        <Field name="emergencyContactPhone" label="Mobile or phone" type="tel" inputMode="tel" autoComplete="off" defaultValue={patient?.emergencyContactPhone ?? ''} error={errors.emergencyContactPhone} />
+        <Field name="emergencyContactPhone" label="Mobile or phone" type="tel" inputMode="tel" autoComplete="off" hint="Like 0917 123 4567" defaultValue={patient?.emergencyContactPhone ?? ''} error={errors.emergencyContactPhone} />
       </Section>
 
       <fieldset className="border-t border-neutral-950 pt-5">
@@ -243,13 +246,29 @@ export function PatientForm({ patient, submitLabel, submittingLabel, cancelTo, o
         </label>
       </fieldset>
 
-      <div className="flex flex-wrap items-center gap-3 border-t border-neutral-200 pt-6">
-        <button type="submit" disabled={submitting} className={`${buttonOnLight} h-11 px-6`}>
-          {submitting ? submittingLabel : submitLabel}
-        </button>
-        <Link to={cancelTo} className={`${buttonOutline} h-11 px-5`}>
-          Cancel
-        </Link>
+      {/* Stays in view at the bottom of the screen, so a long form is never scrolled away from Save. */}
+      <div className="sticky bottom-0 z-10 -mb-8 border-t border-neutral-950 bg-white py-3" role="region" aria-label="Save">
+        {guard.leaveTo ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="mr-auto font-semibold">Leave without saving? Your changes will be lost.</p>
+            <button type="button" onClick={guard.stay} autoFocus className={`${buttonOnLight} h-10 px-5 text-sm`}>
+              Keep editing
+            </button>
+            <button type="button" onClick={guard.leave} className={`${buttonOutline} h-10 px-4 text-sm`}>
+              Leave and discard
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="submit" disabled={submitting} className={`${buttonOnLight} h-10 px-6 text-sm`}>
+              {submitting ? submittingLabel : submitLabel}
+            </button>
+            <Link to={cancelTo} className={`${buttonOutline} h-10 px-5 text-sm`}>
+              Cancel
+            </Link>
+            {dirty && <p className="text-sm text-neutral-600">Unsaved changes</p>}
+          </div>
+        )}
       </div>
     </form>
   )

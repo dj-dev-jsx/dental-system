@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import { LoadErrorBoundary } from './components/LoadErrorBoundary'
 import { StaffUserContext, useAuthStore } from './features/auth/authStore'
+import { ChangePasswordScreen } from './features/auth/ChangePasswordScreen'
 import { LoginScreen } from './features/auth/LoginScreen'
 import { UnreachableScreen } from './features/auth/UnreachableScreen'
 import LandingPage from './pages/LandingPage'
@@ -54,6 +55,8 @@ function StaffRoute() {
     case 'signedOut':
       return <Navigate to="/sign-in" replace />
     case 'signedIn':
+      // A temporary password has to be replaced before anything else: the API refuses all other requests.
+      if (state.user.mustChangePassword) return <ChangePasswordScreen />
       return (
         <StaffUserContext value={state.user}>
           <LoadErrorBoundary>

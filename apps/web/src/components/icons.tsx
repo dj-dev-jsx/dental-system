@@ -139,3 +139,57 @@ export const PersonIcon = (props: IconProps) => (
     <path d="M4.5 16.5c.5-2.9 2.6-4.75 5.5-4.75s5 1.85 5.5 4.75" />
   </Icon>
 )
+
+/** Staff: two people with a badge line, to tell it from the patients' icon. */
+export const UsersIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx={10} cy={6.5} r={3} />
+    <path d="M4 16.5c.45-3 2.55-4.75 6-4.75s5.55 1.75 6 4.75z" />
+    <path d="M8.5 14.25h3" />
+  </Icon>
+)
+
+/** Clinic settings: three sliders. */
+export const SettingsIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M3.5 5.5h1.75M8.75 5.5h7.75M3.5 10h7.75M14.75 10h1.75M3.5 14.5h3.25M10.25 14.5h6.25" />
+    <circle cx={7} cy={5.5} r={1.75} />
+    <circle cx={13} cy={10} r={1.75} />
+    <circle cx={8.5} cy={14.5} r={1.75} />
+  </Icon>
+)
+
+export const CopyIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x={7} y={7} width={9.25} height={9.25} rx={1.75} />
+    <path d="M13 7V5.25a1.5 1.5 0 0 0-1.5-1.5H5.25a1.5 1.5 0 0 0-1.5 1.5v6.25a1.5 1.5 0 0 0 1.5 1.5H7" />
+  </Icon>
+)
+
+export const CheckIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="m4.5 10.5 3.5 3.5 7.5-8" />
+  </Icon>
+)
+
+export const ChevronDownIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4.5 8 10 13.5 15.5 8" />
+  </Icon>
+)
+
+/** Today, the home page: a sun with its rays. */
+export const SunIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx={10} cy={10} r={3.25} />
+    <path d="M10 2.75v1.5M10 15.75v1.5M2.75 10h1.5M15.75 10h1.5M4.87 4.87l1.06 1.06M14.07 14.07l1.06 1.06M4.87 15.13l1.06-1.06M14.07 5.93l1.06-1.06" />
+  </Icon>
+)
+
+/** Sign out: a door with an arrow leaving it. */
+export const SignOutIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M8.25 16.25h-3a1.5 1.5 0 0 1-1.5-1.5v-9.5a1.5 1.5 0 0 1 1.5-1.5h3" />
+    <path d="M12.5 6.5 16 10l-3.5 3.5M16 10H8" />
+  </Icon>
+)

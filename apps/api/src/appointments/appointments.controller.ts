@@ -2,6 +2,8 @@ import { Body, Controller, Get, Header, HttpCode, Param, Patch, Post, Query } fr
 import { CurrentUser } from '../auth/auth.decorators.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import {
+  type AvailabilityQuery,
+  availabilitySchema,
   type ConfirmAppointmentInput,
   confirmAppointmentSchema,
   type CreateAppointmentInput,
@@ -45,6 +47,23 @@ export class AppointmentsController {
   @Header('Cache-Control', NO_STORE)
   requestCount(@CurrentUser() user: AuthenticatedUser) {
     return this.appointments.requestCount(user);
+  }
+
+  // Is a dentist free then? Asked while the booking form is filled in, so it isn't logged.
+  @Get('availability')
+  @Header('Cache-Control', NO_STORE)
+  availability(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query({ schema: availabilitySchema }) query: AvailabilityQuery,
+  ) {
+    return this.appointments.availability(user, query);
+  }
+
+  // What happened to one appointment. Reading it is not logged, or it would add to what it lists.
+  @Get(':id/history')
+  @Header('Cache-Control', NO_STORE)
+  history(@CurrentUser() user: AuthenticatedUser, @Param('id', { schema: idSchema }) id: string) {
+    return this.appointments.history(user, id);
   }
 
   @Get(':id')

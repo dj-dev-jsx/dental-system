@@ -419,4 +419,86 @@ describe('Appointments (e2e)', () => {
       ).rejects.toThrow();
     });
   });
+
+  describe('conflict hints, history and availability', () => {
+    it('marks a request that clashes with a confirmed appointment of the same dentist', async () => {
+      await book().expect(201); // Santos 9:00-9:30
+      const clashing = await owner.appointment.create({
+        data: { clinicId: clinicA, patientId: maria, dentistId: santos, startsAt: new Date(at('09:15')), endsAt: new Date(at('09:45')) },
+      });
+      const other = await owner.appointment.create({
+        data: { clinicId: clinicA, patientId: maria, dentistId: lim, startsAt: new Date(at('09:15')), endsAt: new Date(at('09:45')) },
+      });
+      const anyone = await addRequest(at('09:15'), at('09:45'));
+      const { body } = await as('RECEPTIONIST').get(`${URL}/requests`).expect(200);
+      const byId = Object.fromEntries(body.items.map((i: { id: string }) => [i.id, i]));
+      expect(byId[clashing.id].conflict).toMatchObject({ dentist: { id: santos, lastName: 'Santos' } });
+      expect(new Date(byId[clashing.id].conflict.startsAt).toISOString()).toBe(new Date(at('09:00')).toISOString());
+      expect(byId[other.id].conflict).toBeNull();
+      expect(byId[anyone.id].conflict).toBeNull();
+      const day = await as('RECEPTIONIST').get(URL).query({ from: TOMORROW, to: TOMORROW }).expect(200);
+      const listed = day.body.items.find((i: { id: string }) => i.id === clashing.id);
+      expect(listed.conflict).not.toBeNull();
+    });
+
+    it('lists the history of one appointment, oldest first, without logging a view', async () => {
+      const { body: created } = await book().expect(201);
+      await as('RECEPTIONIST').patch(`${URL}/${created.id}`).send({ dentistId: lim, startsAt: at('11:00'), endsAt: at('11:30') }).expect(200);
+      await as('ADMIN').post(`${URL}/${created.id}/cancel`).send({ note: 'Patient called' }).expect(200);
+      const before = await owner.auditLog.count();
+      const { body } = await as('RECEPTIONIST').get(`${URL}/${created.id}/history`).expect(200);
+      expect(await owner.auditLog.count()).toBe(before);
+      expect(body.items.map((i: { action: string }) => i.action)).toEqual([
+        'APPOINTMENT_CREATED',
+        'APPOINTMENT_UPDATED',
+        'APPOINTMENT_CANCELLED',
+      ]);
+      expect(body.items[0].actor).toEqual({ firstName: 'T', lastName: 'Desk', role: 'RECEPTIONIST' });
+      expect(body.items[1].metadata.changes.dentistId).toEqual({ from: santos, to: lim });
+      expect(body.dentists[lim]).toEqual({ firstName: 'T', lastName: 'Lim' });
+    });
+
+    it('keeps history private to the clinic', async () => {
+      const { body: created } = await book().expect(201);
+      await as('ADMIN_B').get(`${URL}/${created.id}/history`).expect(404);
+      await http().get(`${URL}/${created.id}/history`).expect(401);
+    });
+
+    it('says whether a dentist is free, and suggests nearby slots', async () => {
+      await book().expect(201); // 9:00-9:30
+      const query = (startsAt: string, endsAt: string, extra: Record<string, string> = {}) =>
+        as('RECEPTIONIST').get(`${URL}/availability`).query({ dentistId: santos, startsAt, endsAt, ...extra });
+      const free = await query(at('10:00'), at('10:30')).expect(200);
+      expect(free.headers['cache-control']).toBe('no-store');
+      expect(free.body).toEqual({ free: true, clash: null, suggestions: [] });
+
+      const busy = await query(at('09:15'), at('09:45')).expect(200);
+      expect(busy.body.free).toBe(false);
+      expect(new Date(busy.body.clash.startsAt).toISOString()).toBe(new Date(at('09:00')).toISOString());
+      expect(busy.body.suggestions).toHaveLength(3);
+      for (const slot of busy.body.suggestions) {
+        expect(Date.parse(slot.endsAt) - Date.parse(slot.startsAt)).toBe(30 * 60_000);
+        expect(Date.parse(slot.startsAt) >= Date.parse(at('09:30')) || Date.parse(slot.endsAt) <= Date.parse(at('09:00'))).toBe(true);
+      }
+      expect(busy.body.suggestions.map((s: { startsAt: string }) => new Date(s.startsAt).toISOString())).toContain(
+        new Date(at('09:30')).toISOString(),
+      );
+
+      // Moving the appointment itself does not clash with itself.
+      const created = await owner.appointment.findFirstOrThrow({ where: { clinicId: clinicA } });
+      const self = await query(at('09:15'), at('09:45'), { exceptId: created.id }).expect(200);
+      expect(self.body.free).toBe(true);
+      // Nothing was logged for any of it.
+      expect(await audit('APPOINTMENT_LISTED')).toHaveLength(0);
+    });
+
+    it('refuses odd availability questions and other clinics dentists', async () => {
+      const ask = (q: Record<string, string>) => as('RECEPTIONIST').get(`${URL}/availability`).query(q);
+      await ask({ dentistId: santos, startsAt: at('10:00') }).expect(400);
+      await ask({ dentistId: santos, startsAt: at('10:30'), endsAt: at('10:00') }).expect(400);
+      await ask({ dentistId: santos, startsAt: at('10:00'), endsAt: at('10:30'), extra: '1' }).expect(400);
+      await ask({ dentistId: dentistB, startsAt: at('10:00'), endsAt: at('10:30') }).expect(400);
+      await http().get(`${URL}/availability`).expect(401);
+    });
+  });
 });

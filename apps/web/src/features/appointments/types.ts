@@ -24,6 +24,31 @@ export type Appointment = {
   }
   /** Empty for a request where the patient didn't mind which dentist. */
   dentist: Dentist | null
+  /** For a request: the first confirmed appointment that clashes with the time and dentist asked for. */
+  conflict?: { dentist: { id: string; lastName: string }; startsAt: string; endsAt: string } | null
+}
+
+/** One line of an appointment's own history, from GET /appointments/:id/history. */
+export type HistoryEntry = {
+  id: string
+  action: 'APPOINTMENT_CREATED' | 'APPOINTMENT_UPDATED' | 'APPOINTMENT_CONFIRMED' | 'APPOINTMENT_DECLINED' | 'APPOINTMENT_CANCELLED'
+  createdAt: string
+  metadata: {
+    dentistId?: string
+    startsAt?: string
+    endsAt?: string
+    changes?: Record<string, { from: string | null; to: string | null }>
+  } | null
+  actor: { firstName: string; lastName: string; role: 'ADMIN' | 'DENTIST' | 'RECEPTIONIST' | 'ASSISTANT' }
+}
+
+export type History = { items: HistoryEntry[]; dentists: Record<string, { firstName: string; lastName: string }> }
+
+/** GET /appointments/availability */
+export type Availability = {
+  free: boolean
+  clash: { startsAt: string; endsAt: string } | null
+  suggestions: { startsAt: string; endsAt: string }[]
 }
 
 /** Staff booking directly. */

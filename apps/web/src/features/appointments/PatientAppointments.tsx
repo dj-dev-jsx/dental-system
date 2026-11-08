@@ -1,78 +1,117 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { buttonOnLight } from '../../components/buttons'
+import { buttonOutline } from '../../components/buttons'
 import { PlusIcon } from '../../components/icons'
+import { None, Pill, RowLink, Sub, Table, Td, Tr } from '../../components/Table'
 import { errorMessage } from '../../lib/api'
 import { dentistName, formatDate, formatTimeRange, manilaDate } from '../../lib/format'
-import { StatusTag } from './AppointmentActions'
-import { usePatientAppointments } from './queries'
-import type { Appointment } from './types'
+import { RecordSection } from '../patients/RecordSection'
+import { usePatientAppointmentSummary } from './usePatientAppointmentSummary'
+import { type Appointment, type AppointmentStatus, STATUS_LABELS } from './types'
 
-/** The appointments on a patient's record: what's coming up, then what's past or closed. */
+const EARLIER_SHOWN = 5
+
+const TONES: Record<AppointmentStatus, 'solid' | 'outline' | 'muted'> = {
+  REQUESTED: 'solid',
+  CONFIRMED: 'outline',
+  DECLINED: 'muted',
+  CANCELLED: 'muted',
+}
+
+/** The appointments on a patient's record, as a compact table: upcoming first, then earlier ones. */
 export function PatientAppointments({ patientId, canBook }: { patientId: string; canBook: boolean }) {
-  const { data, isPending, isError, error } = usePatientAppointments(patientId)
-  // When the record was opened. Fixed, so the lists don't reshuffle on every re-render.
-  const [now] = useState(() => Date.now())
-  const items = data?.items ?? []
-  const open = (appointment: Appointment) =>
-    (appointment.status === 'CONFIRMED' || appointment.status === 'REQUESTED') && Date.parse(appointment.endsAt) >= now
-  // The API sends latest first. Upcoming reads best soonest first.
-  const upcoming = items.filter(open).reverse()
-  const earlier = items.filter((appointment) => !open(appointment))
+  const { query, upcoming, earlier } = usePatientAppointmentSummary(patientId)
+  const { isPending, isError, error, refetch } = query
+  const [showAll, setShowAll] = useState(false)
+  const shownEarlier = showAll ? earlier : earlier.slice(0, EARLIER_SHOWN)
+  const total = upcoming.length + earlier.length
 
   return (
-    <section>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 className="text-lg font-semibold">Appointments</h2>
-        {canBook && (
-          <Link to={`/app/appointments/new?patientId=${patientId}`} className={`${buttonOnLight} h-9 px-4 text-sm`}>
+    <RecordSection
+      title="Appointments"
+      action={
+        canBook && (
+          <Link to={`/app/appointments/new?patientId=${patientId}`} className={`${buttonOutline} h-8 px-3 text-sm`}>
             <PlusIcon className="size-4" /> Book appointment
           </Link>
-        )}
-      </div>
+        )
+      }
+    >
       {isPending ? (
-        <div className="mt-3 h-24 rounded bg-neutral-100" aria-busy="true" />
+        <div className="space-y-3 py-4" aria-busy="true" aria-label="Loading appointments">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-4 w-full max-w-lg rounded bg-neutral-100" />
+          ))}
+        </div>
       ) : isError ? (
-        <p className="mt-3 text-sm" role="alert">{errorMessage(error)}</p>
-      ) : items.length === 0 ? (
-        <p className="mt-3 border-t border-neutral-950 py-4 text-neutral-600">No appointments yet.</p>
+        <p className="flex flex-wrap items-center gap-3 py-4 text-sm" role="alert">
+          {errorMessage(error)}
+          <button type="button" onClick={() => void refetch()} className="font-semibold underline underline-offset-3">
+            Try again
+          </button>
+        </p>
+      ) : total === 0 ? (
+        <p className="py-4 text-neutral-600">No appointments yet.</p>
       ) : (
-        <>
-          <Rows title="Coming up" appointments={upcoming} empty="Nothing booked." />
-          {earlier.length > 0 && <Rows title="Earlier and cancelled" appointments={earlier} />}
-        </>
+        <Table label="Appointments">
+          <thead className="sr-only">
+            <tr>
+              <th scope="col">When</th>
+              <th scope="col">Dentist</th>
+              <th scope="col">Reason</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {upcoming.length === 0 && (
+              <tr className="border-b border-neutral-200">
+                <td colSpan={4} className="py-3 text-neutral-600">
+                  Nothing booked.
+                </td>
+              </tr>
+            )}
+            {upcoming.map((appointment) => (
+              <Row key={appointment.id} appointment={appointment} />
+            ))}
+            {earlier.length > 0 && (
+              <tr className="border-b border-neutral-200">
+                <th colSpan={4} scope="colgroup" className="pt-5 pb-2 text-left text-sm font-medium text-neutral-600">
+                  Earlier and closed
+                </th>
+              </tr>
+            )}
+            {shownEarlier.map((appointment) => (
+              <Row key={appointment.id} appointment={appointment} past />
+            ))}
+          </tbody>
+        </Table>
       )}
-    </section>
+      {earlier.length > EARLIER_SHOWN && (
+        <button
+          type="button"
+          onClick={() => setShowAll((value) => !value)}
+          aria-expanded={showAll}
+          className="mt-3 text-sm font-semibold text-neutral-700 underline underline-offset-3 hover:text-neutral-950"
+        >
+          {showAll ? `Show the latest ${EARLIER_SHOWN}` : `Show all ${earlier.length} earlier`}
+        </button>
+      )}
+    </RecordSection>
   )
 }
 
-function Rows({ title, appointments, empty }: { title: string; appointments: Appointment[]; empty?: string }) {
+function Row({ appointment, past = false }: { appointment: Appointment; past?: boolean }) {
   return (
-    <div className="mt-4">
-      <h3 className="text-sm font-semibold text-neutral-600">{title}</h3>
-      {appointments.length === 0 ? (
-        <p className="mt-2 border-t border-neutral-950 py-3 text-sm text-neutral-500">{empty}</p>
-      ) : (
-        <ol className="mt-2 border-t border-neutral-950">
-          {appointments.map((appointment) => (
-            <li key={appointment.id} className="border-b border-neutral-200">
-              <Link
-                to={`/app/appointments/${appointment.id}`}
-                className="grid gap-x-6 gap-y-0.5 px-1 py-3 outline-neutral-950 hover:bg-neutral-50 focus-visible:outline-2 sm:grid-cols-[15.5rem_minmax(0,1fr)_auto]"
-              >
-                <span className="font-medium">
-                  {formatDate(manilaDate(appointment.startsAt))}, {formatTimeRange(appointment.startsAt, appointment.endsAt)}
-                </span>
-                <span className="min-w-0 text-neutral-700">
-                  {appointment.dentist ? dentistName(appointment.dentist) : 'Any dentist'}
-                  {appointment.reason && <span className="text-neutral-500"> · {appointment.reason}</span>}
-                </span>
-                <StatusTag status={appointment.status} />
-              </Link>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
+    <Tr muted={past}>
+      <Td primary>
+        <RowLink to={`/app/appointments/${appointment.id}`}>{formatDate(manilaDate(appointment.startsAt))}</RowLink>
+        <Sub>{formatTimeRange(appointment.startsAt, appointment.endsAt)}</Sub>
+      </Td>
+      <Td>{appointment.dentist ? dentistName(appointment.dentist) : <span className="text-neutral-500">Any dentist</span>}</Td>
+      <Td hideBelow="md">{appointment.reason ?? <None />}</Td>
+      <Td align="right">
+        <Pill tone={TONES[appointment.status]}>{STATUS_LABELS[appointment.status]}</Pill>
+      </Td>
+    </Tr>
   )
 }

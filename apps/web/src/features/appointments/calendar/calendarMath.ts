@@ -5,9 +5,16 @@ import type { Appointment } from '../types'
 
 export type View = 'day' | 'week' | 'month'
 
-/** The clinic's day on the grid, in Philippine time. Clinic opening hours become a setting later. */
-export const DAY_START_HOUR = 7
-export const DAY_END_HOUR = 20
+/**
+ * The hours the grid shows come from the clinic's settings (opening hours), so they are
+ * passed around instead of being constants. These are the values used while those load.
+ */
+export const DEFAULT_START_HOUR = 7
+export const DEFAULT_END_HOUR = 20
+/** The whole hours that cover the clinic's opening hours, which are in minutes after midnight. */
+export function gridHours(opensAt: number, closesAt: number) {
+  return { startHour: Math.floor(opensAt / 60), endHour: Math.ceil(closesAt / 60) }
+}
 /** Height of one hour on the grid, in pixels. A 15-minute slot is a quarter of it. */
 export const HOUR_PX = 64
 export const SLOT_MINUTES = 15
@@ -42,9 +49,9 @@ export function clockOf(minutes: number) {
 }
 
 /** Top and height on the grid, in pixels, kept inside the visible day. */
-export function placement(startsAt: string, endsAt: string) {
-  const first = DAY_START_HOUR * 60
-  const last = DAY_END_HOUR * 60
+export function placement(startsAt: string, endsAt: string, startHour: number, endHour: number) {
+  const first = startHour * 60
+  const last = endHour * 60
   const start = Math.max(first, Math.min(last - SLOT_MINUTES, minutesOfDay(startsAt)))
   const end = Math.max(start + SLOT_MINUTES, Math.min(last, minutesOfDay(endsAt)))
   return { top: ((start - first) / 60) * HOUR_PX, height: ((end - start) / 60) * HOUR_PX }

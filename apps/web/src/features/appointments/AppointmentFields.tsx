@@ -83,6 +83,8 @@ export function WhenFields({ idPrefix = '', defaults, errors }: WhenProps) {
       <FormField id={ids.duration} label="Length" error={errors.duration}>
         <select
           id={ids.duration}
+          // A new default (the clinic's settings arriving late) re-creates the box with it chosen.
+          key={defaults.duration}
           name="duration"
           defaultValue={String(defaults.duration)}
           className={selectClass(errors.duration)}

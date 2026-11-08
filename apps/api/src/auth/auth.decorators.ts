@@ -8,6 +8,14 @@ import type { AuthenticatedRequest } from './auth.types.js';
 
 export const IS_PUBLIC_KEY = 'isPublic';
 export const ROLES_KEY = 'roles';
+export const ALLOW_PASSWORD_CHANGE_PENDING_KEY = 'allowPasswordChangePending';
+
+/**
+ * Marks a route that still works while the user must change their password
+ * (me, logout and change-password). Every other route answers 403 until they do.
+ */
+export const AllowWhenPasswordChangePending = () =>
+  SetMetadata(ALLOW_PASSWORD_CHANGE_PENDING_KEY, true);
 
 /** Opens a route to anyone. Every route without this requires a login. */
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);

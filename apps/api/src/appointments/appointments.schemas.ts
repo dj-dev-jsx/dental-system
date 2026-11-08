@@ -64,8 +64,23 @@ export const listAppointmentsSchema = z
 
 export const idSchema = z.uuid();
 
+// Is this dentist free then? exceptId leaves one appointment out, for moving it.
+export const availabilitySchema = z
+  .strictObject({
+    dentistId: z.uuid(),
+    startsAt: moment,
+    endsAt: moment,
+    exceptId: z.uuid().optional(),
+  })
+  .refine(({ startsAt, endsAt }) => endsAt > startsAt, { message: 'endsAt is before startsAt', path: ['endsAt'] })
+  .refine(({ startsAt, endsAt }) => endsAt.getTime() - startsAt.getTime() <= 8 * 60 * 60 * 1000, {
+    message: 'An appointment can last at most 8 hours',
+    path: ['endsAt'],
+  });
+
 export type CreateAppointmentInput = z.infer<typeof createAppointmentSchema>;
 export type UpdateAppointmentInput = z.infer<typeof updateAppointmentSchema>;
 export type ConfirmAppointmentInput = z.infer<typeof confirmAppointmentSchema>;
 export type StatusNoteInput = z.infer<typeof statusNoteSchema>;
+export type AvailabilityQuery = z.infer<typeof availabilitySchema>;
 export type ListAppointmentsQuery = z.infer<typeof listAppointmentsSchema>;

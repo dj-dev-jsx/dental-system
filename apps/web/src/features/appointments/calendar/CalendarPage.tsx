@@ -8,12 +8,14 @@ import { ApiError, errorMessage } from '../../../lib/api'
 import { dentistName, formatDayLong, formatDayShort, formatTimeRange, fullName, isDate, manilaDate, manilaMoment, todayInManila } from '../../../lib/format'
 import { useDocumentTitle } from '../../../lib/useDocumentTitle'
 import { useStaffUser } from '../../auth/authStore'
+import { useClinic } from '../../clinic/queries'
 import { useDentists, useSchedule, useUpdateAppointment } from '../queries'
 import type { Appointment, AppointmentChanges, Dentist } from '../types'
 import { CalendarPanel, type Selection } from './CalendarPanel'
-import { clockOf, daysOf, step, type View } from './calendarMath'
+import { clockOf, DEFAULT_END_HOUR, DEFAULT_START_HOUR, daysOf, gridHours, step, type View } from './calendarMath'
 import { MonthGrid } from './MonthGrid'
 import { type Column, type Draft, TimeGrid } from './TimeGrid'
+import { TitlePicker } from './TitlePicker'
 
 const MONTH_YEAR = new Intl.DateTimeFormat('en-PH', { month: 'long', year: 'numeric', timeZone: 'UTC' })
 const WEEKDAY = new Intl.DateTimeFormat('en-PH', { weekday: 'short', timeZone: 'UTC' })
@@ -72,6 +74,9 @@ export default function CalendarPage() {
   // The day view always fetches every dentist and filters on screen, so its columns stay complete.
   const schedule = useSchedule({ from: days[0], to: days[days.length - 1], dentistId: view === 'day' ? '' : dentistFilter })
   const dentists = useDentists()
+  // The grid shows the clinic's opening hours; until they load it uses 7 AM to 8 PM, so nothing jumps.
+  const clinic = useClinic().data
+  const { startHour, endHour } = clinic ? gridHours(clinic.opensAt, clinic.closesAt) : { startHour: DEFAULT_START_HOUR, endHour: DEFAULT_END_HOUR }
   const [selection, setSelection] = useState<Selection | null>(null)
   const close = useCallback(() => setSelection(null), [setSelection])
   const updateAppointment = useUpdateAppointment()
@@ -186,9 +191,7 @@ export default function CalendarPage() {
     <div className="flex h-full min-h-[34rem]">
       <div className="relative flex min-w-0 flex-1 flex-col">
         <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-3 border-b border-neutral-200 px-4 py-3 sm:px-6">
-          <h1 className="min-w-0 text-2xl font-bold tracking-[-0.02em]" aria-live="polite">
-            {title}
-          </h1>
+          <TitlePicker title={title} date={date} onPick={(day) => update({ date: day === today ? null : day })} />
           <div className="flex items-center gap-1">
             <button type="button" onClick={() => update({ date: null })} className={`${buttonOutline} h-9 px-3 text-sm`}>
               Today
@@ -265,6 +268,8 @@ export default function CalendarPage() {
           ) : (
             <TimeGrid
               columns={columns}
+              startHour={startHour}
+              endHour={endHour}
               appointmentsFor={appointmentsFor}
               showDentist={view === 'week' && !dentistFilter}
               selectedId={selectedId}

@@ -255,6 +255,188 @@ describe('Patients (e2e)', () => {
     });
   });
 
+  describe('appointments and sorting in the list', () => {
+    const HOUR = 3_600_000;
+    const at = (hours: number) => new Date(Date.now() + hours * HOUR);
+    const book = (
+      clinicId: string,
+      patientId: string,
+      startHours: number,
+      status: 'REQUESTED' | 'CONFIRMED' | 'CANCELLED' | 'DECLINED' = 'CONFIRMED',
+      dentistId: string | null = adminA,
+    ) =>
+      owner.appointment.create({
+        data: {
+          clinicId,
+          patientId,
+          dentistId,
+          startsAt: at(startHours),
+          endsAt: at(startHours + 0.5),
+          status,
+          reason: 'Cleaning',
+        },
+      });
+    let abad: string;
+    let zamora: string;
+
+    beforeEach(async () => {
+      const make = async (lastName: string) =>
+        (await as('ADMIN').post(URL).send({ ...newPatient, lastName }).expect(201)).body.id as string;
+      abad = await make('Abad');
+      zamora = await make('Zamora');
+    });
+
+    const order = async (query: Record<string, unknown>) => {
+      const response = await as('ADMIN').get(URL).query(query).expect(200);
+      return response.body.items.map((patient: { lastName: string }) => patient.lastName);
+    };
+
+    it('shows the soonest upcoming request or confirmed visit, with the dentist', async () => {
+      await book(clinicA, maria, 72);
+      const soonest = await book(clinicA, maria, 24, 'REQUESTED');
+      await book(clinicA, maria, 5, 'CANCELLED');
+      await book(clinicA, maria, 6, 'DECLINED');
+      const response = await as('ADMIN').get(URL).query({ search: 'maria' }).expect(200);
+      const item = response.body.items[0];
+      expect(item.nextAppointment).toMatchObject({
+        id: soonest.id,
+        status: 'REQUESTED',
+        dentist: { id: adminA, lastName: 'ADMIN' },
+      });
+      expect(item.lastVisitAt).toBeNull();
+    });
+
+    it('gives a null dentist for a request that named none', async () => {
+      await book(clinicA, maria, 24, 'REQUESTED', null);
+      const response = await as('ADMIN').get(URL).query({ search: 'maria' }).expect(200);
+      expect(response.body.items[0].nextAppointment.dentist).toBeNull();
+    });
+
+    it('reports the end of the latest confirmed visit that already ended', async () => {
+      await book(clinicA, maria, -96);
+      const latest = await book(clinicA, maria, -48);
+      await book(clinicA, maria, -24, 'CANCELLED');
+      await book(clinicA, maria, 24);
+      const response = await as('ADMIN').get(URL).query({ search: 'maria' }).expect(200);
+      expect(response.body.items[0].lastVisitAt).toBe(latest.endsAt.toISOString());
+      expect(response.body.items[0].nextAppointment).not.toBeNull();
+    });
+
+    it("never shows another clinic's appointments", async () => {
+      await book(clinicB, bea, 24, 'REQUESTED', null);
+      const response = await as('ADMIN').get(URL).expect(200);
+      for (const item of response.body.items) {
+        expect(item.nextAppointment).toBeNull();
+        expect(item.lastVisitAt).toBeNull();
+      }
+      const other = await as('ADMIN_B').get(URL).expect(200);
+      expect(other.body.items[0].nextAppointment).not.toBeNull();
+    });
+
+    it('sorts by name in either direction', async () => {
+      expect(await order({ sort: 'name', dir: 'desc' })).toEqual(['Zamora', 'Dela Cruz', 'Abad']);
+      expect(await order({})).toEqual(['Abad', 'Dela Cruz', 'Zamora']);
+    });
+
+    it('sorts by next appointment, soonest first, with patients who have none last', async () => {
+      await book(clinicA, zamora, 10);
+      await book(clinicA, maria, 30);
+      expect(await order({ sort: 'nextAppointment' })).toEqual(['Zamora', 'Dela Cruz', 'Abad']);
+      expect(await order({ sort: 'nextAppointment', dir: 'desc' })).toEqual(['Dela Cruz', 'Zamora', 'Abad']);
+    });
+
+    it('sorts by last visit, with patients never seen last in both directions', async () => {
+      await book(clinicA, abad, -100);
+      await book(clinicA, maria, -10);
+      await book(clinicA, zamora, 10); // upcoming only: no visit yet
+      expect(await order({ sort: 'lastVisit' })).toEqual(['Abad', 'Dela Cruz', 'Zamora']);
+      expect(await order({ sort: 'lastVisit', dir: 'desc' })).toEqual(['Dela Cruz', 'Abad', 'Zamora']);
+    });
+
+    it('pages a sorted list without repeating or skipping anyone, ties broken by id', async () => {
+      for (const lastName of ['Bravo', 'Cruz', 'Dizon', 'Eala']) {
+        await as('ADMIN').post(URL).send({ ...newPatient, lastName }).expect(201);
+      }
+      // Seven patients (Maria, the two from setup and four more), none with an appointment: all tie, so the id decides.
+      const seen: string[] = [];
+      for (const page of [1, 2, 3, 4]) {
+        const response = await as('ADMIN').get(URL).query({ sort: 'nextAppointment', limit: 2, page }).expect(200);
+        expect(response.body.total).toBe(7);
+        seen.push(...response.body.items.map((patient: { id: string }) => patient.id));
+      }
+      expect(new Set(seen).size).toBe(7);
+      expect(seen).toEqual([...seen].sort());
+    });
+
+    it('keeps search and the archived view working while sorted', async () => {
+      await book(clinicA, zamora, 10);
+      const found = await as('ADMIN').get(URL).query({ sort: 'lastVisit', search: 'zamora' }).expect(200);
+      expect(found.body.total).toBe(1);
+      expect(found.body.items[0].lastName).toBe('Zamora');
+      await as('ADMIN').post(`${URL}/${zamora}/archive`).expect(204);
+      expect(await order({ sort: 'nextAppointment', archived: true })).toEqual(['Zamora']);
+      expect(await order({ sort: 'nextAppointment', search: '%' })).toEqual([]);
+    });
+
+    it('refuses an unknown sort or direction', async () => {
+      await as('ADMIN').get(URL).query({ sort: 'lastName' }).expect(400);
+      await as('ADMIN').get(URL).query({ sort: 'name; DROP TABLE patients' }).expect(400);
+      await as('ADMIN').get(URL).query({ dir: 'up' }).expect(400);
+    });
+
+    it('logs the sort without what was searched for', async () => {
+      await as('ADMIN').get(URL).query({ sort: 'lastVisit', dir: 'desc', search: 'zamora' }).expect(200);
+      const logs = await auditLogs();
+      const listed = logs.filter((log) => log.action === 'PATIENT_LISTED').at(-1);
+      expect(listed?.metadata).toMatchObject({ sort: 'lastVisit', dir: 'desc', searched: true });
+      expect(JSON.stringify(logs)).not.toContain('zamora');
+    });
+  });
+
+  describe('the record summary', () => {
+    it('includes the next appointment, last visit and a chart summary without logging a chart view', async () => {
+      const day = 24 * 3_600_000;
+      const upcoming = await owner.appointment.create({
+        data: { clinicId: clinicA, patientId: maria, dentistId: adminA, startsAt: new Date(Date.now() + day), endsAt: new Date(Date.now() + day + 1_800_000), status: 'CONFIRMED' },
+      });
+      await owner.appointment.create({
+        data: { clinicId: clinicA, patientId: maria, dentistId: adminA, startsAt: new Date(Date.now() - 3 * day), endsAt: new Date(Date.now() - 3 * day + 1_800_000), status: 'CONFIRMED' },
+      });
+      const record = (tooth: string, condition: 'DECAYED' | 'FILLED' | null, hoursAgo: number, extra = {}) =>
+        owner.toothRecord.create({
+          data: { clinicId: clinicA, patientId: maria, tooth, condition, recordedById: adminA, recordedAt: new Date(Date.now() - hoursAgo * 3_600_000), ...extra },
+        });
+      await record('16', 'DECAYED', 10);
+      const wrong = await record('26', 'FILLED', 9);
+      await record('26', 'DECAYED', 9, { correctsId: wrong.id, correctionReason: 'typo' });
+      await record('36', 'FILLED', 8);
+      const before = (await auditLogs()).length;
+
+      const response = await as('DENTIST').get(`${URL}/${maria}`).expect(200);
+      expect(response.body.nextAppointment).toMatchObject({ id: upcoming.id, dentist: { id: adminA } });
+      expect(response.body.lastVisitAt).not.toBeNull();
+      expect(response.body.chartSummary.counts).toEqual({ DECAYED: 2, FILLED: 1 });
+      expect(response.body.chartSummary.latest).toMatchObject({ tooth: '36', recordedBy: { role: 'ADMIN' } });
+      const logs = (await auditLogs()).slice(before);
+      expect(logs.map((log) => log.action)).toEqual(['PATIENT_VIEWED']);
+    });
+
+    it('has an empty summary for a patient with no appointments or chart', async () => {
+      const response = await as('ADMIN').get(`${URL}/${maria}`).expect(200);
+      expect(response.body).toMatchObject({ nextAppointment: null, lastVisitAt: null });
+      expect(response.body.chartSummary).toEqual({ counts: {}, latest: null });
+    });
+
+    it("doesn't leak another clinic's chart or appointments", async () => {
+      await owner.appointment.create({
+        data: { clinicId: clinicB, patientId: bea, startsAt: new Date(Date.now() + 3_600_000), endsAt: new Date(Date.now() + 7_200_000), status: 'REQUESTED' },
+      });
+      await as('ADMIN').get(`${URL}/${bea}`).expect(404);
+      const response = await as('ADMIN_B').get(`${URL}/${bea}`).expect(200);
+      expect(response.body.nextAppointment).not.toBeNull();
+    });
+  });
+
   describe('viewing', () => {
     it('returns the full record', async () => {
       const response = await as('ASSISTANT').get(`${URL}/${maria}`).expect(200);
@@ -430,7 +612,7 @@ describe('Patients (e2e)', () => {
     it('never logs what was typed in the search box', async () => {
       await as('ADMIN').get(URL).query({ search: 'Penduko' }).expect(200);
       const [list] = await patientLogs();
-      expect(list.metadata).toEqual({ searched: true, archived: false, page: 1, resultCount: 0 });
+      expect(list.metadata).toEqual({ sort: 'name', dir: 'asc', searched: true, archived: false, page: 1, resultCount: 0 });
     });
 
     it('logs nothing when a lookup finds no patient', async () => {

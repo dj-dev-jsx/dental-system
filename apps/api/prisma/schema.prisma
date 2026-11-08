@@ -51,6 +51,12 @@ enum AuditAction {
   CHART_VIEWED
   TOOTH_RECORDED
   TOOTH_CORRECTED
+  STAFF_CREATED
+  STAFF_UPDATED
+  STAFF_PASSWORD_RESET
+  STAFF_UNLOCKED
+  PASSWORD_CHANGED
+  CLINIC_UPDATED
 }
 
 // What a dentist found or did to a whole tooth. The 3D chart colours each tooth by its latest one.
@@ -90,6 +96,12 @@ model Clinic {
   address   String?  @db.VarChar(500)
   phone     String?  @db.VarChar(30)
   email     String?  @db.VarChar(254)
+  // Opening hours, as minutes after midnight in Philippine time (420 = 7:00 AM). The calendar
+  // shows this range. A check in the migration keeps opens_at before closes_at.
+  opensAt             Int      @default(420) @map("opens_at")
+  closesAt            Int      @default(1200) @map("closes_at")
+  // How long a new appointment lasts unless chosen otherwise.
+  defaultVisitMinutes Int      @default(30) @map("default_visit_minutes")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -115,6 +127,8 @@ model User {
   // After too many wrong passwords the account is locked for a while.
   failedLogins Int      @default(0) @map("failed_logins")
   lockedUntil  DateTime? @map("locked_until") @db.Timestamptz(3)
+  // True after an admin sets a temporary password: it must be changed before anything else.
+  mustChangePassword Boolean @default(false) @map("must_change_password")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

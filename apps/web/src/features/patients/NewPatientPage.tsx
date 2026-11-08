@@ -1,29 +1,37 @@
-import { Link, useNavigate } from 'react-router'
-import { ArrowLeftIcon } from '../../components/icons'
+import { useLocation, useNavigate } from 'react-router'
+import { DetailBack } from '../../components/SplitView'
+import { PageHeader } from '../../components/Page'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
+import { DetailPane } from './DetailPane'
+import { useWorkspaceLink } from './listParams'
 import { PatientForm } from './PatientForm'
 import { useCreatePatient } from './queries'
 
+/**
+ * Registering a patient, in the right side of the workspace. Once saved, the new record
+ * opens in its place (with a "Registered" note and Book first visit), and the list beside it
+ * refreshes to include them.
+ */
 export default function NewPatientPage() {
   useDocumentTitle('Register patient')
-  const navigate = useNavigate()
   const createPatient = useCreatePatient()
+  const navigate = useNavigate()
+  const { search } = useLocation()
+  const link = useWorkspaceLink()
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link to="/app/patients" className="inline-flex items-center gap-1.5 text-sm font-medium text-neutral-600 hover:text-neutral-950">
-        <ArrowLeftIcon className="size-4" /> Patients
-      </Link>
-      <h1 className="mt-4 text-3xl font-bold tracking-[-0.02em]">Register patient</h1>
+    <DetailPane narrow>
+      <DetailBack to={link('/app/patients')} label="Patients" />
+      <PageHeader title="Register patient" description="Add a new patient to the clinic." />
       <PatientForm
         submitLabel="Register patient"
         submittingLabel="Registering…"
-        cancelTo="/app/patients"
+        cancelTo={link('/app/patients')}
         onSubmit={async (input) => {
-          const patient = await createPatient.mutateAsync(input)
-          navigate(`/app/patients/${patient.id}`, { replace: true })
+          const created = await createPatient.mutateAsync(input)
+          void navigate(`/app/patients/${created.id}${search}`, { replace: true, state: { registered: true } })
         }}
       />
-    </div>
+    </DetailPane>
   )
 }

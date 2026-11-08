@@ -7,9 +7,10 @@ import {
 import { recordAudit } from '../audit/audit.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { addDays, manilaTime, startOfManilaDay, todayInManila } from '../common/manila.js';
-import type { AppointmentStatus, Prisma } from '../generated/prisma/client.js';
+import type { AppointmentStatus, AuditAction, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type {
+  AvailabilityQuery,
   ConfirmAppointmentInput,
   CreateAppointmentInput,
   ListAppointmentsQuery,
@@ -42,6 +43,14 @@ const FIELDS = {
   },
   dentist: { select: { id: true, firstName: true, lastName: true } },
 } satisfies Prisma.AppointmentSelect;
+
+const HISTORY_ACTIONS: AuditAction[] = [
+  'APPOINTMENT_CREATED',
+  'APPOINTMENT_UPDATED',
+  'APPOINTMENT_CONFIRMED',
+  'APPOINTMENT_DECLINED',
+  'APPOINTMENT_CANCELLED',
+];
 
 const HOUR_MS = 60 * 60 * 1000;
 const LONGEST_VISIT_HOURS = 8;
@@ -148,7 +157,7 @@ export class AppointmentsService {
       await recordAudit(tx, user, 'APPOINTMENT_LISTED', {
         metadata: { from, to, status: status ?? null, resultCount: items.length },
       });
-      return { items };
+      return { items: await this.withConflicts(tx, user, items) };
     });
   }
 
@@ -166,7 +175,7 @@ export class AppointmentsService {
       await recordAudit(tx, user, 'APPOINTMENT_LISTED', {
         metadata: { status: ['REQUESTED'], resultCount: items.length },
       });
-      return { items, total };
+      return { items: await this.withConflicts(tx, user, items), total };
     });
   }
 
@@ -213,7 +222,147 @@ export class AppointmentsService {
       });
       if (!appointment) throw new NotFoundException('Appointment not found');
       await recordAudit(tx, user, 'APPOINTMENT_VIEWED', { entityId: id });
-      return appointment;
+      const [withConflict] = await this.withConflicts(tx, user, [appointment]);
+      return withConflict;
+    });
+  }
+
+  /** The lines of the audit log about one appointment, oldest first, for its activity list. */
+  history(user: AuthenticatedUser, id: string) {
+    return this.forClinic(user, async (tx) => {
+      const appointment = await tx.appointment.findUnique({
+        where: { clinicId_id: { clinicId: user.clinicId, id } },
+        select: { id: true },
+      });
+      if (!appointment) throw new NotFoundException('Appointment not found');
+      const items = await tx.auditLog.findMany({
+        where: { clinicId: user.clinicId, entityId: id, action: { in: HISTORY_ACTIONS } },
+        select: {
+          id: true,
+          action: true,
+          createdAt: true,
+          metadata: true,
+          actor: { select: { firstName: true, lastName: true, role: true } },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: 200,
+      });
+      // Dentists named in the lines by id only, so the page can say "moved from Dr. X to Dr. Y".
+      const ids = new Set<string>();
+      for (const item of items) {
+        const meta = item.metadata as {
+          dentistId?: string;
+          changes?: { dentistId?: { from: string | null; to: string | null } };
+        } | null;
+        for (const value of [meta?.dentistId, meta?.changes?.dentistId?.from, meta?.changes?.dentistId?.to]) {
+          if (value) ids.add(value);
+        }
+      }
+      // Users have no row-level security, so the clinic filter here is the only lock.
+      const found =
+        ids.size > 0
+          ? await tx.user.findMany({
+              where: { clinicId: user.clinicId, id: { in: [...ids] } },
+              select: { id: true, firstName: true, lastName: true },
+            })
+          : [];
+      const dentists = Object.fromEntries(
+        found.map((d) => [d.id, { firstName: d.firstName, lastName: d.lastName }]),
+      );
+      return { items, dentists };
+    });
+  }
+
+  /**
+   * Is this dentist free for these times? If not, which confirmed appointment is in the way,
+   * and up to three other slots of the same length that day (Philippine time, 15-minute steps,
+   * inside the clinic's opening hours), nearest first.
+   */
+  availability(user: AuthenticatedUser, { dentistId, startsAt, endsAt, exceptId }: AvailabilityQuery) {
+    return this.forClinic(user, async (tx) => {
+      await this.findDentist(tx, user, dentistId);
+      const clinic = await tx.clinic.findUniqueOrThrow({
+        where: { id: user.clinicId },
+        select: { opensAt: true, closesAt: true },
+      });
+      const day = todayInManila(startsAt);
+      const dayStart = startOfManilaDay(day);
+      const dayEnd = startOfManilaDay(addDays(day, 1));
+      const busy = await tx.appointment.findMany({
+        where: {
+          clinicId: user.clinicId,
+          dentistId,
+          status: 'CONFIRMED',
+          startsAt: { lt: dayEnd },
+          endsAt: { gt: dayStart },
+          id: exceptId ? { not: exceptId } : undefined,
+        },
+        select: { startsAt: true, endsAt: true },
+        orderBy: { startsAt: 'asc' },
+      });
+      const clashes = (from: Date, to: Date) => busy.find((b) => b.startsAt < to && b.endsAt > from);
+      const clash = clashes(startsAt, endsAt) ?? null;
+      const suggestions: { startsAt: Date; endsAt: Date }[] = [];
+      if (clash) {
+        const length = endsAt.getTime() - startsAt.getTime();
+        const candidates: { startsAt: Date; endsAt: Date }[] = [];
+        for (let minute = clinic.opensAt; minute + length / 60_000 <= clinic.closesAt; minute += 15) {
+          const from = new Date(dayStart.getTime() + minute * 60_000);
+          const to = new Date(from.getTime() + length);
+          if (!clashes(from, to)) candidates.push({ startsAt: from, endsAt: to });
+        }
+        const distance = (c: { startsAt: Date }) => Math.abs(c.startsAt.getTime() - startsAt.getTime());
+        candidates.sort((a, b) => distance(a) - distance(b));
+        suggestions.push(...candidates.slice(0, 3).sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime()));
+      }
+      return {
+        free: !clash,
+        clash: clash && { startsAt: clash.startsAt, endsAt: clash.endsAt },
+        suggestions,
+      };
+    });
+  }
+
+  /**
+   * Adds `conflict` to each request: the first confirmed appointment that overlaps the time
+   * asked for, with the dentist asked for. One query for the whole list. Null when there is
+   * no dentist, no overlap, or the appointment isn't a request.
+   */
+  private async withConflicts<
+    T extends {
+      status: AppointmentStatus;
+      startsAt: Date;
+      endsAt: Date;
+      dentist: { id: string; lastName: string } | null;
+    },
+  >(tx: Prisma.TransactionClient, user: AuthenticatedUser, items: T[]) {
+    const asked = items.filter((item) => item.status === 'REQUESTED' && item.dentist);
+    const confirmed =
+      asked.length > 0
+        ? await tx.appointment.findMany({
+            where: {
+              clinicId: user.clinicId,
+              status: 'CONFIRMED',
+              dentistId: { in: [...new Set(asked.map((item) => (item.dentist as { id: string }).id))] },
+              startsAt: { lt: new Date(Math.max(...asked.map((item) => item.endsAt.getTime()))) },
+              endsAt: { gt: new Date(Math.min(...asked.map((item) => item.startsAt.getTime()))) },
+            },
+            select: { dentistId: true, startsAt: true, endsAt: true },
+            orderBy: { startsAt: 'asc' },
+          })
+        : [];
+    return items.map((item) => {
+      const dentist = item.status === 'REQUESTED' ? item.dentist : null;
+      const clash = dentist
+        ? confirmed.find((c) => c.dentistId === dentist.id && c.startsAt < item.endsAt && c.endsAt > item.startsAt)
+        : undefined;
+      return {
+        ...item,
+        conflict:
+          dentist && clash
+            ? { dentist: { id: dentist.id, lastName: dentist.lastName }, startsAt: clash.startsAt, endsAt: clash.endsAt }
+            : null,
+      };
     });
   }
 

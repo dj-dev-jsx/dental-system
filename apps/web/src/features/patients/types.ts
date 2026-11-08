@@ -1,10 +1,22 @@
 import type { StaffRole } from '../auth/authStore'
+import type { Condition } from '../dental-chart/model/status'
 
 // The shapes the API sends back. They mirror apps/api/src/patients/patients.service.ts.
 
 export type Sex = 'FEMALE' | 'MALE'
 
-/** One row of the patient list: only what's needed to pick the right person. */
+/** The soonest appointment still ahead: asked for or confirmed. */
+export type NextAppointment = {
+  id: string
+  startsAt: string
+  endsAt: string
+  status: 'REQUESTED' | 'CONFIRMED'
+  /** Only on the record, not in the list. */
+  reason?: string | null
+  dentist: { id: string; lastName: string } | null
+}
+
+/** One row of the patient list: what a front desk needs to pick the right person. */
 export type PatientSummary = {
   id: string
   firstName: string
@@ -14,12 +26,26 @@ export type PatientSummary = {
   birthDate: string // 'YYYY-MM-DD'
   sex: Sex | null
   phone: string | null
+  email: string | null
+  nextAppointment: NextAppointment | null
+  /** When the latest confirmed visit that has already happened ended. */
+  lastVisitAt: string | null
+}
+
+/** The teeth counted by condition, and the newest entry, for the record's summary. */
+export type ChartSummary = {
+  counts: Partial<Record<Condition, number>>
+  latest: {
+    tooth: string
+    condition: Condition
+    recordedAt: string
+    recordedBy: { firstName: string; lastName: string; role: StaffRole }
+  } | null
 }
 
 /** The full record, sent only when someone opens it (and the API logs that). */
 export type Patient = PatientSummary & {
   clinicId: string
-  email: string | null
   address: string | null
   emergencyContactName: string | null
   emergencyContactPhone: string | null
@@ -27,11 +53,16 @@ export type Patient = PatientSummary & {
   archivedAt: string | null
   createdAt: string
   updatedAt: string
+  /** Missing in what a save returns; the record then keeps the summary it already had. */
+  chartSummary?: ChartSummary
 }
 
 export type Page<T> = { items: T[]; total: number; page: number; limit: number }
 
-export type PatientListQuery = { search: string; page: number; archived: boolean }
+export type PatientSort = 'name' | 'nextAppointment' | 'lastVisit'
+export type SortDirection = 'asc' | 'desc'
+
+export type PatientListQuery = { search: string; page: number; archived: boolean; sort: PatientSort; dir: SortDirection }
 
 /**
  * What the form sends. On an edit, null clears an optional field and a missing field is

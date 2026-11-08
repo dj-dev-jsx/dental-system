@@ -1,5 +1,5 @@
-import { Link, useNavigate, useSearchParams } from 'react-router'
-import { ArrowLeftIcon } from '../../components/icons'
+import { useNavigate, useSearchParams } from 'react-router'
+import { Page, PageHeader } from '../../components/Page'
 import { formatDate, fullName, isDate, todayInManila } from '../../lib/format'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
 import { usePatient } from '../patients/queries'
@@ -27,18 +27,18 @@ export default function NewAppointmentPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link to={back} className="inline-flex items-center gap-1.5 text-sm font-medium text-neutral-600 hover:text-neutral-950">
-        <ArrowLeftIcon className="size-4" /> {patientId ? 'Patient' : 'Schedule'}
-      </Link>
-      <h1 className="mt-4 text-3xl font-bold tracking-[-0.02em]">Book appointment</h1>
-      <p className="mt-1 text-neutral-600">A booking made here is confirmed straight away.</p>
+    <Page narrow>
+      <PageHeader
+        back={{ to: back, label: patientId ? 'Patient' : 'Schedule' }}
+        title="Book appointment"
+        description="A booking made here is confirmed straight away. The schedule is checked as you choose."
+      />
       {patientId ? (
         <ForPatient patientId={patientId} back={back} onSubmit={book} />
       ) : (
         <AppointmentForm initialDate={date} submitLabel="Book appointment" submittingLabel="Booking…" cancelTo={back} onSubmit={book} />
       )}
-    </div>
+    </Page>
   )
 }
 

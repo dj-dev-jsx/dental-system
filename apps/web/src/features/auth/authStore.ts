@@ -13,6 +13,8 @@ export type StaffUser = {
   firstName: string
   lastName: string
   role: StaffRole
+  /** True after an admin created or reset the account: a new password must be chosen first. */
+  mustChangePassword: boolean
 }
 
 export const ROLE_LABELS: Record<StaffRole, string> = {

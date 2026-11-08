@@ -3,8 +3,6 @@ import { dentistName, formatTimeRange, fullName, todayInManila } from '../../../
 import type { Appointment } from '../types'
 import {
   clockOf,
-  DAY_END_HOUR,
-  DAY_START_HOUR,
   HOUR_PX,
   layoutLanes,
   minutesOfDay,
@@ -26,6 +24,9 @@ export type Draft = { columnKey: string; minutes: number; length: number }
 
 type Props = {
   columns: Column[]
+  /** The first hour shown and the hour the grid ends at, from the clinic's opening hours. */
+  startHour: number
+  endHour: number
   appointmentsFor: (column: Column) => Appointment[]
   /** Label each appointment with its dentist, when columns aren't already one per dentist. */
   showDentist: boolean
@@ -67,8 +68,6 @@ type Drag = {
 const DRAG_THRESHOLD = 4
 const snap = (minutes: number) => Math.round(minutes / SLOT_MINUTES) * SLOT_MINUTES
 
-const HOURS = Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }, (_, i) => DAY_START_HOUR + i)
-const GRID_HEIGHT = HOURS.length * HOUR_PX
 const HOUR_LABEL = (hour: number) => `${hour % 12 || 12} ${hour < 12 ? 'AM' : 'PM'}`
 
 /** The minute-by-minute clock, ticking once a minute, for the line that marks "now". */
@@ -85,6 +84,8 @@ function useNowMinutes() {
 /** The day and week views: a column per day or per dentist, hours down the side. */
 export function TimeGrid({
   columns,
+  startHour,
+  endHour,
   appointmentsFor,
   showDentist,
   selectedId,
@@ -100,6 +101,10 @@ export function TimeGrid({
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const now = useNowMinutes()
+  const HOURS = Array.from({ length: endHour - startHour }, (_, i) => startHour + i)
+  const GRID_HEIGHT = HOURS.length * HOUR_PX
+  const dayStart = startHour * 60
+  const dayEnd = endHour * 60
   const [hover, setHover] = useState<{ columnKey: string; minutes: number } | null>(null)
   const showsToday = columns.some((column) => column.date === now.date)
   const columnEls = useRef(new Map<string, HTMLDivElement>())
@@ -114,8 +119,8 @@ export function TimeGrid({
   /** Minutes since midnight at a height on the page, inside one column. */
   function minutesAt(clientY: number, columnKey: string) {
     const el = columnEls.current.get(columnKey)
-    if (!el) return DAY_START_HOUR * 60
-    return DAY_START_HOUR * 60 + ((clientY - el.getBoundingClientRect().top) / HOUR_PX) * 60
+    if (!el) return dayStart
+    return dayStart + ((clientY - el.getBoundingClientRect().top) / HOUR_PX) * 60
   }
 
   function startDrag(event: ReactPointerEvent, appointment: Appointment, columnKey: string, mode: Drag['mode']) {
@@ -164,8 +169,8 @@ export function TimeGrid({
         }
       }
       const pointer = minutesAt(event.clientY, columnKey)
-      const first = DAY_START_HOUR * 60
-      const last = DAY_END_HOUR * 60
+      const first = dayStart
+      const last = dayEnd
       let { start, end } = current.origin
       if (current.mode === 'move') {
         const length = end - start
@@ -223,19 +228,19 @@ export function TimeGrid({
 
   // Open on the working day: an hour before now when today is in view during clinic hours, otherwise 8 AM.
   useLayoutEffect(() => {
-    const open = now.minutes >= DAY_START_HOUR * 60 && now.minutes < DAY_END_HOUR * 60
-    const target = showsToday && open ? now.minutes - 60 : 8 * 60
-    const top = ((target - DAY_START_HOUR * 60) / 60) * HOUR_PX
+    const open = now.minutes >= dayStart && now.minutes < dayEnd
+    const target = showsToday && open ? now.minutes - 60 : Math.min(dayStart + 60, dayEnd - 60)
+    const top = ((target - dayStart) / 60) * HOUR_PX
     scroller.current?.scrollTo({ top: Math.max(0, top) })
     // Only when the days change, not every minute.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrollKey])
+  }, [scrollKey, dayStart, dayEnd])
 
   function slotAt(event: MouseEvent<HTMLDivElement>) {
     const y = event.clientY - event.currentTarget.getBoundingClientRect().top
     const slots = Math.floor((y / HOUR_PX) * (60 / SLOT_MINUTES))
-    const minutes = DAY_START_HOUR * 60 + slots * SLOT_MINUTES
-    return Math.min(minutes, DAY_END_HOUR * 60 - SLOT_MINUTES)
+    const minutes = dayStart + slots * SLOT_MINUTES
+    return Math.min(minutes, dayEnd - SLOT_MINUTES)
   }
 
   const template = `3.5rem repeat(${columns.length}, minmax(${minColumnWidth}, 1fr))`
@@ -265,7 +270,7 @@ export function TimeGrid({
         {columns.map((column) => {
           const placed = layoutLanes(appointmentsFor(column))
           const isToday = column.date === now.date
-          const nowTop = ((now.minutes - DAY_START_HOUR * 60) / 60) * HOUR_PX
+          const nowTop = ((now.minutes - dayStart) / 60) * HOUR_PX
           const bookable = canBook(column)
           const hovered = !drag && bookable && hover?.columnKey === column.key && draft?.columnKey !== column.key ? hover : null
           const ghost = drag?.moved && drag.target.columnKey === column.key ? drag : null
@@ -302,7 +307,7 @@ export function TimeGrid({
                 <div
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-x-1 rounded-md bg-neutral-950/6 px-2 text-[0.6875rem]/[1rem] font-medium text-neutral-600"
-                  style={{ top: ((hovered.minutes - DAY_START_HOUR * 60) / 60) * HOUR_PX + 1, height: HOUR_PX / 2 - 2 }}
+                  style={{ top: ((hovered.minutes - dayStart) / 60) * HOUR_PX + 1, height: HOUR_PX / 2 - 2 }}
                 >
                   <span className="block pt-0.5">+ {formatClock(hovered.minutes)}</span>
                 </div>
@@ -312,7 +317,7 @@ export function TimeGrid({
                 <div
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-x-1 z-10 rounded-md border-2 border-dashed border-neutral-950 bg-white px-2 py-1 text-xs font-semibold"
-                  style={{ top: ((draft.minutes - DAY_START_HOUR * 60) / 60) * HOUR_PX, height: Math.max((draft.length / 60) * HOUR_PX, 24) }}
+                  style={{ top: ((draft.minutes - dayStart) / 60) * HOUR_PX, height: Math.max((draft.length / 60) * HOUR_PX, 24) }}
                 >
                   New appointment, {formatClock(draft.minutes)}
                 </div>
@@ -325,6 +330,8 @@ export function TimeGrid({
                   lane={lane}
                   lanes={lanes}
                   showDentist={showDentist}
+                  startHour={startHour}
+                  endHour={endHour}
                   selected={appointment.id === selectedId}
                   draggable={canDrag(appointment)}
                   lifted={drag?.moved === true && drag.appointment.id === appointment.id}
@@ -335,7 +342,7 @@ export function TimeGrid({
                 />
               ))}
 
-              {ghost && <Ghost drag={ghost} allowed={canDrop(ghost.appointment, column)} />}
+              {ghost && <Ghost drag={ghost} dayStart={dayStart} allowed={canDrop(ghost.appointment, column)} />}
 
               {isToday && nowTop >= 0 && nowTop <= GRID_HEIGHT && (
                 <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 z-20" style={{ top: nowTop }}>
@@ -361,6 +368,8 @@ type EventProps = {
   lane: number
   lanes: number
   showDentist: boolean
+  startHour: number
+  endHour: number
   selected: boolean
   draggable: boolean
   /** Being dragged: the block stays behind, faded, until it's dropped. */
@@ -373,8 +382,8 @@ type EventProps = {
  * One appointment on the grid. Confirmed appointments are solid ink, like exposed film;
  * requests are only outlined, because they don't hold the time yet.
  */
-function Event({ appointment, lane, lanes, showDentist, selected, draggable, lifted, onSelect, onGrab }: EventProps) {
-  const { top, height } = placement(appointment.startsAt, appointment.endsAt)
+function Event({ appointment, lane, lanes, showDentist, startHour, endHour, selected, draggable, lifted, onSelect, onGrab }: EventProps) {
+  const { top, height } = placement(appointment.startsAt, appointment.endsAt, startHour, endHour)
   const request = appointment.status === 'REQUESTED'
   const time = formatTimeRange(appointment.startsAt, appointment.endsAt)
   const name = fullName(appointment.patient)
@@ -439,10 +448,10 @@ function Event({ appointment, lane, lanes, showDentist, selected, draggable, lif
 }
 
 /** Where a dragged appointment would land, with its new time. */
-function Ghost({ drag, allowed }: { drag: Drag; allowed: boolean }) {
+function Ghost({ drag, allowed, dayStart }: { drag: Drag; allowed: boolean; dayStart: number }) {
   const { start, end } = drag.target
   const request = drag.appointment.status === 'REQUESTED'
-  const top = ((start - DAY_START_HOUR * 60) / 60) * HOUR_PX
+  const top = ((start - dayStart) / 60) * HOUR_PX
   const height = ((end - start) / 60) * HOUR_PX
   return (
     <div

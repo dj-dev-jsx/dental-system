@@ -3,7 +3,8 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module.js';
 import { HealthController } from './health/health.controller.js';
 import { PrismaModule } from './prisma/prisma.module.js';
-import { ClinicsController } from './clinics/clinics.controller.js';
+import { ClinicsModule } from './clinics/clinics.module.js';
+import { StaffModule } from './staff/staff.module.js';
 import { PatientsModule } from './patients/patients.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AppointmentsModule } from './appointments/appointments.module.js';
@@ -18,7 +19,9 @@ import { ChartModule } from './chart/chart.module.js';
     AuditModule,
     AppointmentsModule,
     ChartModule,
+    ClinicsModule,
+    StaffModule,
   ],
-  controllers: [HealthController, ClinicsController],
+  controllers: [HealthController],
 })
 export class AppModule {}

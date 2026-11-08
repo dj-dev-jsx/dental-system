@@ -1,6 +1,6 @@
 import { keepPreviousData, type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import type { Appointment, AppointmentChanges, Dentist, NewAppointment } from './types'
+import type { Appointment, AppointmentChanges, Availability, Dentist, History, NewAppointment } from './types'
 
 type Range = { from: string; to: string; dentistId: string }
 
@@ -9,6 +9,7 @@ const keys = {
   schedule: (range: Range) => ['appointments', 'schedule', range] as const,
   requests: ['appointments', 'requests'] as const,
   requestCount: ['appointments', 'requestCount'] as const,
+  history: (id: string) => ['appointments', 'history', id] as const,
   one: (id: string) => ['appointments', 'one', id] as const,
   patient: (patientId: string) => ['appointments', 'patient', patientId] as const,
   dentists: ['dentists'] as const,
@@ -57,6 +58,37 @@ export function useRequestCount() {
 
 export function useAppointment(id: string) {
   return useQuery({ queryKey: keys.one(id), queryFn: () => api<Appointment>(`/appointments/${id}`) })
+}
+
+/** What happened to one appointment: booked, moved, confirmed, cancelled. Reading it is not logged. */
+export function useAppointmentHistory(id: string) {
+  return useQuery({
+    queryKey: keys.history(id),
+    queryFn: () => api<History>(`/appointments/${id}/history`),
+    staleTime: 0,
+  })
+}
+
+type Ask = { dentistId: string; startsAt: string; endsAt: string; exceptId?: string }
+
+/** Is the dentist free then? Asked as the form changes, so the caller should debounce `ask`. */
+export function useAvailability(ask: Ask | null) {
+  return useQuery({
+    queryKey: ['appointments', 'availability', ask],
+    queryFn: () => api<Availability>(`/appointments/availability?${new URLSearchParams(ask as Record<string, string>)}`),
+    enabled: ask !== null,
+    staleTime: 15_000,
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** Requests the clinic declined lately (their day is in the last two weeks or still ahead). */
+export function useDeclinedRequests(from: string, to: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['appointments', 'declined', from, to],
+    queryFn: () => api<{ items: Appointment[] }>(`/appointments?${new URLSearchParams({ from, to, status: 'DECLINED' })}`),
+    enabled,
+  })
 }
 
 export function usePatientAppointments(patientId: string) {

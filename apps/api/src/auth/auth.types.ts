@@ -10,6 +10,8 @@ export type AuthenticatedUser = {
   firstName: string;
   lastName: string;
   role: UserRole;
+  /** True after an admin set a temporary password: nothing else works until it is changed. */
+  mustChangePassword: boolean;
 };
 
 export type AuthenticatedRequest = Request & { user: AuthenticatedUser };
