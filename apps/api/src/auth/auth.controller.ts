@@ -102,6 +102,6 @@ export class AuthController {
   @AllowWhenPasswordChangePending()
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser) {
-    return user;
+    return this.auth.me(user);
   }
 }

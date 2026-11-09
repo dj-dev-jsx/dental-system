@@ -1,13 +1,15 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { PortalModule } from '../portal/portal.module.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { RolesGuard } from './roles.guard.js';
 import { SessionGuard } from './session.guard.js';
 
 @Module({
-  imports: [ThrottlerModule.forRoot([{ limit: 300, ttl: 60_000 }])],
+  // PortalModule, for the guard to check patient sessions as well as staff ones.
+  imports: [ThrottlerModule.forRoot([{ limit: 300, ttl: 60_000 }]), PortalModule],
   controllers: [AuthController],
   providers: [
     AuthService,

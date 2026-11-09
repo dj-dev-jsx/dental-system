@@ -14,7 +14,6 @@ const LOCK_MS = 15 * 60 * 1000;
 
 const USER_FIELDS = {
   id: true,
-  clinicId: true,
   email: true,
   firstName: true,
   lastName: true,
@@ -22,7 +21,7 @@ const USER_FIELDS = {
   mustChangePassword: true,
 } as const;
 
-function hashToken(token: string) {
+export function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex');
 }
 
@@ -44,7 +43,7 @@ export class AuthService {
 
   private async attemptLogin(email: string, password: string): Promise<string | null> {
     const user = await this.prisma.user.findUnique({ where: { email } });
-    // An unknown email isn't logged: it belongs to no clinic, so there's no log to put it in.
+    // An unknown email isn't logged: there's no account to name as the actor.
     if (!user) return null;
     if (!user.isActive) {
       await this.recordFailure(user, { reason: 'ACCOUNT_DEACTIVATED' });
@@ -60,7 +59,7 @@ export class AuthService {
     if (!(await verifyPassword(user.passwordHash, password))) {
       const failedLogins = user.failedLogins + 1;
       const locked = failedLogins >= MAX_FAILED_LOGINS;
-      await this.prisma.forClinic(user.clinicId, async (tx) => {
+      await this.prisma.$transaction(async (tx) => {
         await tx.user.update({
           where: { id: user.id },
           data: {
@@ -76,7 +75,7 @@ export class AuthService {
     }
 
     const token = randomBytes(32).toString('base64url');
-    await this.prisma.forClinic(user.clinicId, async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       // A good moment to clear this user's old sessions, since no background job does it.
       await tx.session.deleteMany({ where: { userId: user.id, expiresAt: { lte: now } } });
       await tx.session.create({
@@ -96,13 +95,13 @@ export class AuthService {
   }
 
   private recordFailure(user: User, metadata: { reason: string }) {
-    return this.prisma.forClinic(user.clinicId, (tx) =>
+    return this.prisma.$transaction((tx) =>
       recordAudit(tx, user, 'LOGIN_FAILED', { metadata }),
     );
   }
 
   async logout(user: AuthenticatedUser, token: string): Promise<void> {
-    await this.prisma.forClinic(user.clinicId, async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       await tx.session.deleteMany({ where: { tokenHash: hashToken(token) } });
       await recordAudit(tx, user, 'LOGOUT');
     });
@@ -119,11 +118,11 @@ export class AuthService {
     newPassword: string,
   ): Promise<boolean> {
     const record = await this.prisma.user.findFirst({
-      where: { id: user.id, clinicId: user.clinicId },
+      where: { id: user.id },
     });
     if (!record || !(await verifyPassword(record.passwordHash, currentPassword))) return false;
     const passwordHash = await hashPassword(newPassword);
-    await this.prisma.forClinic(user.clinicId, async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: user.id },
         data: { passwordHash, mustChangePassword: false },
@@ -138,10 +137,9 @@ export class AuthService {
 
   /** The caller's own recent sign-ins, failed attempts and password changes, newest first. */
   async myActivity(user: AuthenticatedUser) {
-    const rows = await this.prisma.forClinic(user.clinicId, (tx) =>
+    const rows = await this.prisma.$transaction((tx) =>
       tx.auditLog.findMany({
         where: {
-          clinicId: user.clinicId,
           actorUserId: user.id,
           action: { in: ['LOGIN_SUCCEEDED', 'LOGIN_FAILED', 'PASSWORD_CHANGED'] },
         },
@@ -174,14 +172,20 @@ export class AuthService {
       select: {
         expiresAt: true,
         user: {
-          select: { ...USER_FIELDS, isActive: true, clinic: { select: { name: true } } },
+          select: { ...USER_FIELDS, isActive: true },
         },
       },
     });
     if (!session || session.expiresAt <= new Date() || !session.user.isActive) {
       return null;
     }
-    const { isActive: _isActive, clinic, ...user } = session.user;
-    return { ...user, clinicName: clinic.name };
+    const { isActive: _isActive, ...user } = session.user;
+    return user;
+  }
+
+  /** GET /auth/me: the user, plus the clinic's name for the page header. */
+  async me(user: AuthenticatedUser) {
+    const clinic = await this.prisma.clinicSettings.findUnique({ where: { id: 1 }, select: { name: true } });
+    return { ...user, clinicName: clinic?.name ?? '' };
   }
 }

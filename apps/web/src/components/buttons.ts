@@ -11,3 +11,9 @@ export const buttonOnLight = `${base} bg-neutral-950 text-white outline-neutral-
 
 /** A quiet outlined button, for white backgrounds. */
 export const buttonOutline = `${base} border border-neutral-300 bg-white text-neutral-900 outline-neutral-950 hover:border-neutral-950 active:bg-neutral-100 disabled:cursor-wait disabled:text-neutral-500`
+
+/**
+ * A main action that can't be used yet, with the reason said beside it. Use with
+ * aria-disabled (not disabled), so it stays focusable and its reason can be read out.
+ */
+export const buttonBlocked = `${base} cursor-not-allowed border border-neutral-300 bg-neutral-100 text-neutral-500 outline-neutral-950`

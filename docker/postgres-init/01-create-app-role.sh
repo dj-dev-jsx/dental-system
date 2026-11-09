@@ -1,8 +1,9 @@
 #!/bin/bash
 # Runs once, when the database volume is first created.
 #
-# Creates the limited login the API uses. Row-level security doesn't apply to superusers
-# or table owners, so the API must never connect as POSTGRES_USER.
+# Creates the limited login the API uses. The append-only rules (permissions the migrations
+# REVOKE from dental_app) don't bind superusers or table owners, so the API must never
+# connect as POSTGRES_USER.
 set -euo pipefail
 
 psql -v ON_ERROR_STOP=1 -v app_password="$APP_DB_PASSWORD" --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'EOSQL'

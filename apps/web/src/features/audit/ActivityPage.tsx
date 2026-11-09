@@ -9,8 +9,8 @@ import { Pill } from '../../components/Table'
 import { api, errorMessage } from '../../lib/api'
 import { addDays, formatDayLong, formatDayShort, manilaDate, todayInManila } from '../../lib/format'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
-import { ROLE_LABELS } from '../auth/authStore'
 import { useStaff } from '../staff/queries'
+import { actorName, actorRole } from './actor'
 import { type ActivityEntry, changesOf, emphasis, failureReason, KIND_GROUPS, sentence, subjectLink } from './activityText'
 
 const LIMIT = 50
@@ -219,11 +219,11 @@ function Line({ entry }: { entry: ActivityEntry }) {
       </time>
       <p>
         <span className="font-semibold">
-          {entry.actor.firstName} {entry.actor.lastName}
+          {actorName(entry.actor)}
         </span>
         <span className="text-neutral-500 sm:block">
           <span className="sm:hidden"> · </span>
-          {ROLE_LABELS[entry.actor.role]}
+          {actorRole(entry.actor)}
         </span>
       </p>
       <div className="col-start-2 min-w-0 sm:col-start-auto">

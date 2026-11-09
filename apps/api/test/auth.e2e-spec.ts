@@ -61,13 +61,12 @@ describe('Auth (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(owner);
-    const clinic = await prisma.clinic.create({ data: { name: 'Test Clinic' } });
+    await resetDatabase(owner, { name: 'Test Clinic' });
     const passwordHash = await hashPassword(PASSWORD);
     await prisma.user.createMany({
       data: [
-        { clinicId: clinic.id, email: ADMIN_EMAIL, passwordHash, firstName: 'A', lastName: 'Admin', role: 'ADMIN' },
-        { clinicId: clinic.id, email: RECEPTION_EMAIL, passwordHash, firstName: 'R', lastName: 'Desk', role: 'RECEPTIONIST' },
+        { email: ADMIN_EMAIL, passwordHash, firstName: 'A', lastName: 'Admin', role: 'ADMIN' },
+        { email: RECEPTION_EMAIL, passwordHash, firstName: 'R', lastName: 'Desk', role: 'RECEPTIONIST' },
       ],
     });
   });
@@ -101,7 +100,7 @@ describe('Auth (e2e)', () => {
       .expect(200);
     expect(me.body.email).toBe(ADMIN_EMAIL);
     expect(me.body.role).toBe('ADMIN');
-    expect(me.body.clinicId).toBeTruthy();
+    expect(me.body).not.toHaveProperty('clinicId');
     expect(me.body.clinicName).toBe('Test Clinic');
     expect(JSON.stringify(me.body)).not.toMatch(/passwordHash|argon2/);
   });

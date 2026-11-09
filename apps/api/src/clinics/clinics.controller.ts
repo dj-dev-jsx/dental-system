@@ -4,26 +4,29 @@ import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { type UpdateClinicInput, updateClinicSchema } from './clinics.schemas.js';
 import { ClinicsService } from './clinics.service.js';
 
-@Controller('clinics')
-export class ClinicsController {
-  // Has @Public(), so anyone can open it.
+// GET /site: the clinic's public details, for the public pages (landing, sign-in), which
+// also use onlineBookingEnabled to decide whether to offer booking. Anyone can open it.
+@Controller('site')
+export class SiteController {
+  constructor(private readonly clinics: ClinicsService) {}
+
   @Public()
-  @Get('hello')
-  hello() {
-    return { message: 'Hello from ClinicsController!' };
+  @Get()
+  @Header('Cache-Control', 'no-store')
+  site() {
+    return this.clinics.site();
   }
 }
 
-// /clinic (singular) is the logged-in user's own clinic. There is no id in the URL on
-// purpose: nobody can ask for another clinic.
+// /clinic: the clinic's details and settings, for staff. Only admins may change them.
 @Controller('clinic')
 export class ClinicController {
   constructor(private readonly clinics: ClinicsService) {}
 
   @Get()
   @Header('Cache-Control', 'no-store')
-  get(@CurrentUser() user: AuthenticatedUser) {
-    return this.clinics.get(user);
+  get() {
+    return this.clinics.get();
   }
 
   @Roles('ADMIN')

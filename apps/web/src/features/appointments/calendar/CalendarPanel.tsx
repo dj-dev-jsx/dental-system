@@ -1,18 +1,20 @@
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { buttonOnLight, buttonOutline } from '../../../components/buttons'
+import { buttonBlocked, buttonOnLight, buttonOutline } from '../../../components/buttons'
 import { ErrorBox } from '../../../components/ErrorBox'
 import { FormField } from '../../../components/FormField'
 import { fieldAria, textareaClass, textareaErrorClass } from '../../../components/forms'
 import { CloseIcon } from '../../../components/icons'
 import { errorMessage } from '../../../lib/api'
-import { dentistName, formatDayLong, formatTimeRange, fullName, manilaDate } from '../../../lib/format'
+import { dentistName, formatDayLong, formatTimeRange, manilaDate } from '../../../lib/format'
 import { useClinic } from '../../clinic/queries'
 import { ClosePanel, ConfirmPanel, StatusTag } from '../AppointmentActions'
 import { DentistField, WhenFields } from '../AppointmentFields'
 import { type FieldErrors, fieldErrorsFrom, hasPassed, readWhen } from '../appointmentInput'
 import { type ChosenPatient, PatientPicker } from '../PatientPicker'
 import { useCreateAppointment, useDentists } from '../queries'
+import { NotLinkedPill, OnlinePill } from '../RequesterPills'
+import { NOT_LINKED_REASON, patientPath, whoName, whoPhone } from '../requester'
 import type { Appointment } from '../types'
 import { clockOf } from './calendarMath'
 
@@ -182,6 +184,8 @@ function DetailsPanel({ appointment, onClose, onChanged }: DetailsProps) {
   const [action, setAction] = useState<'confirm' | 'decline' | 'cancel' | null>(null)
   const { status } = appointment
   const day = manilaDate(appointment.startsAt)
+  const record = patientPath(appointment)
+  const unlinked = appointment.patient === null
   const done = (updated: Appointment) => {
     setAction(null)
     onChanged(updated)
@@ -189,9 +193,11 @@ function DetailsPanel({ appointment, onClose, onChanged }: DetailsProps) {
 
   return (
     <>
-      <PanelHeader title={fullName(appointment.patient)} onClose={onClose}>
+      <PanelHeader title={whoName(appointment)} onClose={onClose}>
         <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-neutral-600">
           <StatusTag status={status} />
+          {appointment.source === 'ONLINE' && <OnlinePill />}
+          {unlinked && <NotLinkedPill />}
           <span>
             {formatDayLong(day)}, {formatTimeRange(appointment.startsAt, appointment.endsAt)}
           </span>
@@ -214,7 +220,8 @@ function DetailsPanel({ appointment, onClose, onChanged }: DetailsProps) {
         <dl className="border-t border-neutral-950 text-sm">
           <Row label="Dentist">{appointment.dentist ? dentistName(appointment.dentist) : 'Any dentist'}</Row>
           <Row label="Reason">{appointment.reason ?? <span className="text-neutral-500">Not recorded</span>}</Row>
-          <Row label="Mobile">{appointment.patient.phone ?? <span className="text-neutral-500">Not recorded</span>}</Row>
+          <Row label="Mobile">{whoPhone(appointment) ?? <span className="text-neutral-500">Not recorded</span>}</Row>
+          {unlinked && appointment.requester && <Row label="Email">{appointment.requester.email}</Row>}
         </dl>
 
         {action === 'confirm' && <ConfirmPanel appointment={appointment} onBack={() => setAction(null)} onConfirmed={done} />}
@@ -226,12 +233,26 @@ function DetailsPanel({ appointment, onClose, onChanged }: DetailsProps) {
           <div className="mt-6 flex flex-wrap gap-3">
             {status === 'REQUESTED' && (
               <>
-                <button type="button" onClick={() => setAction('confirm')} className={`${buttonOnLight} h-10 px-5 text-sm`}>
-                  Confirm…
-                </button>
+                {unlinked ? (
+                  <button type="button" aria-disabled="true" aria-describedby="panel-not-linked" className={`${buttonBlocked} h-10 px-5 text-sm`}>
+                    Confirm…
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => setAction('confirm')} className={`${buttonOnLight} h-10 px-5 text-sm`}>
+                    Confirm…
+                  </button>
+                )}
                 <button type="button" onClick={() => setAction('decline')} className={`${buttonOutline} h-10 px-4 text-sm`}>
                   Decline…
                 </button>
+                {unlinked && (
+                  <p id="panel-not-linked" className="basis-full text-sm text-neutral-600">
+                    {NOT_LINKED_REASON}{' '}
+                    <Link to={`/app/requests/${appointment.id}`} className="font-semibold text-neutral-950 underline underline-offset-3 hover:no-underline">
+                      Say who this is
+                    </Link>
+                  </p>
+                )}
               </>
             )}
             {status === 'CONFIRMED' && (
@@ -248,12 +269,16 @@ function DetailsPanel({ appointment, onClose, onChanged }: DetailsProps) {
         )}
 
         <div className="mt-8 flex flex-col gap-2 border-t border-neutral-200 pt-4 text-sm font-medium">
-          <Link to={`/app/patients/${appointment.patient.id}/chart`} className="underline underline-offset-3 hover:no-underline">
-            Open the dental chart
-          </Link>
-          <Link to={`/app/patients/${appointment.patient.id}`} className="underline underline-offset-3 hover:no-underline">
-            Open the patient’s record
-          </Link>
+          {record ? (
+            <>
+              <Link to={`${record}/chart`} className="underline underline-offset-3 hover:no-underline">
+                Open the dental chart
+              </Link>
+              <Link to={record} className="underline underline-offset-3 hover:no-underline">
+                Open the patient’s record
+              </Link>
+            </>
+          ) : null}
           <Link to={`/app/appointments/${appointment.id}`} className="underline underline-offset-3 hover:no-underline">
             Open the appointment page
           </Link>

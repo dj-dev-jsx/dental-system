@@ -19,12 +19,10 @@ describe('Dental chart (e2e)', () => {
   const owner = ownerClient();
   // The API's own database login, for proving what the database itself refuses.
   const appDb = new PrismaService(new ConfigService({ DATABASE_URL: process.env['DATABASE_URL'] }));
-  const cookies = {} as Record<UserRole | 'ADMIN_B', string>;
+  const cookies = {} as Record<UserRole, string>;
   const ids = {} as Record<UserRole, string>;
-  let clinicA: string;
   let maria: string;
   let juan: string;
-  let bea: string; // Clinic B
 
   const http = () => request(app.getHttpServer());
   const as = (who: keyof typeof cookies) => ({
@@ -37,9 +35,9 @@ describe('Dental chart (e2e)', () => {
   const correct = (recordId: string, fields: Record<string, unknown>, who: keyof typeof cookies = 'DENTIST') =>
     as(who).post(`${chartOf(maria)}/records/${recordId}/correct`).send(fields);
 
-  async function addStaff(clinicId: string, role: UserRole, email: string) {
+  async function addStaff(role: UserRole, email: string) {
     const user = await owner.user.create({
-      data: { clinicId, email, passwordHash, firstName: 'T', lastName: role, role },
+      data: { email, passwordHash, firstName: 'T', lastName: role, role },
     });
     const response = await http().post('/api/v1/auth/login').send({ email, password: PASSWORD }).expect(204);
     const cookie = ([response.headers['set-cookie']].flat() as unknown as string[])[0].split(';')[0];
@@ -59,19 +57,15 @@ describe('Dental chart (e2e)', () => {
 
   beforeEach(async () => {
     await resetDatabase(owner);
-    clinicA = (await owner.clinic.create({ data: { name: 'Clinic A' } })).id;
-    const clinicB = (await owner.clinic.create({ data: { name: 'Clinic B' } })).id;
     for (const role of ['ADMIN', 'DENTIST', 'RECEPTIONIST', 'ASSISTANT'] as const) {
-      const staff = await addStaff(clinicA, role, `${role.toLowerCase()}@a.example`);
+      const staff = await addStaff(role, `${role.toLowerCase()}@a.example`);
       cookies[role] = staff.cookie;
       ids[role] = staff.id;
     }
-    cookies.ADMIN_B = (await addStaff(clinicB, 'ADMIN', 'admin@b.example')).cookie;
-    const patient = (clinicId: string, firstName: string) =>
-      owner.patient.create({ data: { clinicId, firstName, lastName: 'Test', birthDate: new Date('1990-01-01') } });
-    maria = (await patient(clinicA, 'Maria')).id;
-    juan = (await patient(clinicA, 'Juan')).id;
-    bea = (await patient(clinicB, 'Bea')).id;
+    const patient = (firstName: string) =>
+      owner.patient.create({ data: { firstName, lastName: 'Test', birthDate: new Date('1990-01-01') } });
+    maria = (await patient('Maria')).id;
+    juan = (await patient('Juan')).id;
   });
 
   afterAll(async () => {
@@ -134,7 +128,6 @@ describe('Dental chart (e2e)', () => {
       const visit = (patientId: string, hoursFromNow: number) =>
         owner.appointment.create({
           data: {
-            clinicId: clinicA,
             patientId,
             dentistId: ids.DENTIST,
             status: 'CONFIRMED',
@@ -211,12 +204,12 @@ describe('Dental chart (e2e)', () => {
     });
   });
 
-  describe('keeping clinics apart', () => {
-    it("can't see, write in or correct another clinic's chart", async () => {
+  describe('unknown patients and entries', () => {
+    it("can't see, write in or correct a chart or entry that doesn't exist", async () => {
       const entry = (await record({ tooth: '16', condition: 'DECAYED' }).expect(201)).body;
-      await as('ADMIN_B').get(chartOf(maria)).expect(404);
-      await record({ tooth: '16', condition: 'DECAYED' }, 'ADMIN_B').expect(404);
-      await as('ADMIN_B').post(`${chartOf(bea)}/records/${entry.id}/correct`).send({ condition: null, reason: 'x' }).expect(404);
+      await as('ADMIN').get(chartOf(randomUUID())).expect(404);
+      await record({ tooth: '16', condition: 'DECAYED' }, 'DENTIST', randomUUID()).expect(404);
+      await as('DENTIST').post(`${chartOf(juan)}/records/${entry.id}/correct`).send({ condition: null, reason: 'x' }).expect(404);
       await as('DENTIST').post(`${chartOf(maria)}/records/${randomUUID()}/correct`).send({ condition: null, reason: 'x' }).expect(404);
       expect(await owner.toothRecord.count()).toBe(1);
     });
@@ -224,7 +217,6 @@ describe('Dental chart (e2e)', () => {
 
   describe('in the database itself', () => {
     const entry = (fields: Record<string, unknown> = {}) => ({
-      clinicId: clinicA,
       patientId: maria,
       tooth: '16',
       condition: 'DECAYED' as const,
@@ -234,12 +226,12 @@ describe('Dental chart (e2e)', () => {
     });
 
     it('is written in pen: the API’s login can add entries but never change or delete them', async () => {
-      const saved = await appDb.forClinic(clinicA, (tx) => tx.toothRecord.create({ data: entry() }));
+      const saved = await appDb.toothRecord.create({ data: entry() });
       await expect(
-        appDb.forClinic(clinicA, (tx) => tx.toothRecord.update({ where: { id: saved.id }, data: { condition: 'FILLED' } })),
+        appDb.toothRecord.update({ where: { id: saved.id }, data: { condition: 'FILLED' } }),
       ).rejects.toThrow(/permission denied/);
       await expect(
-        appDb.forClinic(clinicA, (tx) => tx.toothRecord.delete({ where: { id: saved.id } })),
+        appDb.toothRecord.delete({ where: { id: saved.id } }),
       ).rejects.toThrow(/permission denied/);
     });
 
@@ -249,7 +241,7 @@ describe('Dental chart (e2e)', () => {
       await refused({ tooth: '19' });
       await refused({ condition: null }); // only a correction may be empty
       await refused({ condition: 'CROWN', surfaces: ['OCCLUSAL'] });
-      await refused({ patientId: bea }); // another clinic's patient
+      await refused({ patientId: randomUUID() }); // a patient that doesn't exist
       const original = await owner.toothRecord.create({ data: entry() });
       await refused({ correctsId: original.id }); // a correction without a reason
       await refused({ correctsId: original.id, correctionReason: 'x', tooth: '17' }); // another tooth

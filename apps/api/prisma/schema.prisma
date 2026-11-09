@@ -10,14 +10,13 @@ datasource db {
 }
 
 // Conventions for every table:
+//  - The system serves a single clinic, so no table says which clinic a row
+//    belongs to. The clinic's own details are the single row of clinic_settings.
 //  - ids are UUID v7: not guessable, and time-ordered so indexes stay fast.
 //  - Times are timestamptz, which stores an exact moment rather than a clock reading.
-//  - Anything owned by a clinic has clinic_id and @@unique([clinicId, id]), so later tables
-//    can use a two-column foreign key that stops the database linking rows across clinics.
-//  - onDelete: Restrict. Deleting a clinic or user must never erase medical records.
-//  - A table holding patient data needs row-level security too. Prisma can't express that
-//    here, so its migration adds it by hand: copy the end of the add_patient_row_level_security
-//    migration. A test fails if a table with clinic_id doesn't have it.
+//  - onDelete: Restrict. Deleting a user must never erase medical records.
+//  - Medical and audit history is append-only: migrations REVOKE UPDATE and/or DELETE from
+//    the API's database login (dental_app) on those tables, so the database enforces it.
 
 enum UserRole {
   ADMIN
@@ -57,6 +56,24 @@ enum AuditAction {
   STAFF_UNLOCKED
   PASSWORD_CHANGED
   CLINIC_UPDATED
+  // Done by a patient through online booking (the actor is their account, not a staff member).
+  PATIENT_ACCOUNT_REGISTERED
+  PATIENT_EMAIL_VERIFIED
+  PATIENT_LOGIN_SUCCEEDED
+  PATIENT_LOGIN_FAILED
+  PATIENT_LOGOUT
+  PATIENT_PASSWORD_RESET
+  APPOINTMENT_REQUESTED_ONLINE
+  APPOINTMENT_CANCELLED_BY_PATIENT
+  // Done by staff: connecting an online account to the patient record it belongs to.
+  PATIENT_ACCOUNT_LINKED
+  PATIENT_ACCOUNT_UNLINKED
+}
+
+// What a one-time link in an email is for.
+enum PatientTokenPurpose {
+  VERIFY_EMAIL
+  RESET_PASSWORD
 }
 
 // What a dentist found or did to a whole tooth. The 3D chart colours each tooth by its latest one.
@@ -90,55 +107,49 @@ enum AppointmentStatus {
   CANCELLED
 }
 
-model Clinic {
-  id        String   @id @default(uuid(7)) @db.Uuid
-  name      String   @db.VarChar(200)
-  address   String?  @db.VarChar(500)
-  phone     String?  @db.VarChar(30)
-  email     String?  @db.VarChar(254)
+// The clinic's details and settings. There is only ever one row: a check in the
+// single_clinic migration keeps id = 1.
+model ClinicSettings {
+  id                   Int      @id @default(1)
+  name                 String   @db.VarChar(200)
+  address              String?  @db.VarChar(500)
+  phone                String?  @db.VarChar(30)
+  email                String?  @db.VarChar(254)
   // Opening hours, as minutes after midnight in Philippine time (420 = 7:00 AM). The calendar
   // shows this range. A check in the migration keeps opens_at before closes_at.
-  opensAt             Int      @default(420) @map("opens_at")
-  closesAt            Int      @default(1200) @map("closes_at")
+  opensAt              Int      @default(420) @map("opens_at")
+  closesAt             Int      @default(1200) @map("closes_at")
   // How long a new appointment lasts unless chosen otherwise.
-  defaultVisitMinutes Int      @default(30) @map("default_visit_minutes")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  defaultVisitMinutes  Int      @default(30) @map("default_visit_minutes")
+  onlineBookingEnabled Boolean  @default(true) @map("online_booking_enabled")
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  users        User[]
-  patients     Patient[]
-  auditLogs    AuditLog[]
-  appointments Appointment[]
-  toothRecords ToothRecord[]
-
-  @@map("clinics")
+  @@map("clinic_settings")
 }
 
 model User {
-  id           String   @id @default(uuid(7)) @db.Uuid
-  clinicId     String   @map("clinic_id") @db.Uuid
-  email        String   @unique @db.VarChar(254)
-  passwordHash String   @map("password_hash") @db.VarChar(255)
-  firstName    String   @map("first_name") @db.VarChar(100)
-  lastName     String   @map("last_name") @db.VarChar(100)
-  role         UserRole
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  email              String    @unique @db.VarChar(254)
+  passwordHash       String    @map("password_hash") @db.VarChar(255)
+  firstName          String    @map("first_name") @db.VarChar(100)
+  lastName           String    @map("last_name") @db.VarChar(100)
+  role               UserRole
   // Staff who leave are deactivated, never deleted: records still point to them.
-  isActive     Boolean  @default(true) @map("is_active")
+  isActive           Boolean   @default(true) @map("is_active")
   // After too many wrong passwords the account is locked for a while.
-  failedLogins Int      @default(0) @map("failed_logins")
-  lockedUntil  DateTime? @map("locked_until") @db.Timestamptz(3)
+  failedLogins       Int       @default(0) @map("failed_logins")
+  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz(3)
   // True after an admin sets a temporary password: it must be changed before anything else.
-  mustChangePassword Boolean @default(false) @map("must_change_password")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  clinic    Clinic     @relation(fields: [clinicId], references: [id], onDelete: Restrict)
-  sessions     Session[]
-  auditLogs    AuditLog[]
-  appointments Appointment[]
-  toothRecords ToothRecord[]
+  sessions              Session[]
+  auditLogs             AuditLog[]
+  appointments          Appointment[]
+  toothRecords          ToothRecord[]
+  linkedPatientAccounts PatientAccount[]
 
-  @@unique([clinicId, id])
   @@map("users")
 }
 
@@ -160,7 +171,6 @@ model Session {
 
 model Patient {
   id                    String    @id @default(uuid(7)) @db.Uuid
-  clinicId              String    @map("clinic_id") @db.Uuid
   firstName             String    @map("first_name") @db.VarChar(100)
   middleName            String?   @map("middle_name") @db.VarChar(100)
   lastName              String    @map("last_name") @db.VarChar(100)
@@ -179,12 +189,12 @@ model Patient {
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  clinic       Clinic        @relation(fields: [clinicId], references: [id], onDelete: Restrict)
-  appointments Appointment[]
-  toothRecords ToothRecord[]
+  appointments  Appointment[]
+  toothRecords  ToothRecord[]
+  // The online booking account staff linked to this record, if any.
+  onlineAccount PatientAccount?
 
-  @@unique([clinicId, id])
-  @@index([clinicId, lastName, firstName])
+  @@index([lastName, firstName])
   @@map("patients")
 }
 
@@ -193,23 +203,24 @@ model Patient {
 // Updates keep each changed field's old and new value, so this table holds patient details
 // and needs the same protection as the patient records themselves.
 model AuditLog {
-  id          String      @id @default(uuid(7)) @db.Uuid
-  clinicId    String      @map("clinic_id") @db.Uuid
-  // For a login or logout, the account that was used.
-  actorUserId String      @map("actor_user_id") @db.Uuid
-  action      AuditAction
+  id                    String      @id @default(uuid(7)) @db.Uuid
+  // Who did it: a staff member, or a patient using online booking. Exactly one of the two is
+  // filled in (a check in the add_online_booking migration). For a login or logout, the
+  // account that was used.
+  actorUserId           String?     @map("actor_user_id") @db.Uuid
+  actorPatientAccountId String?     @map("actor_patient_account_id") @db.Uuid
+  action                AuditAction
   // The record acted on. Empty when an action covers many records, like a search.
-  entityId    String?     @map("entity_id") @db.Uuid
+  entityId              String?     @map("entity_id") @db.Uuid
   // Details of the action: an update's { changes: { field: { from, to } } }, or why a login failed.
-  metadata    Json?
-  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  metadata              Json?
+  createdAt             DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  // Two columns, so the database refuses a log entry whose actor is from another clinic.
-  actor  User   @relation(fields: [clinicId, actorUserId], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
+  actor               User?           @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actorPatientAccount PatientAccount? @relation(fields: [actorPatientAccountId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
-  @@index([clinicId, entityId, createdAt])
-  @@index([clinicId, createdAt])
+  @@index([entityId, createdAt])
+  @@index([createdAt])
   @@map("audit_logs")
 }
 
@@ -221,35 +232,113 @@ model AuditLog {
 //    can't double-book. Requests may overlap: they don't take up the dentist's time yet.
 // Who created or changed an appointment is in the audit log, like everything else.
 model Appointment {
-  id         String            @id @default(uuid(7)) @db.Uuid
-  clinicId   String            @map("clinic_id") @db.Uuid
-  patientId  String            @map("patient_id") @db.Uuid
+  id               String            @id @default(uuid(7)) @db.Uuid
+  // Empty only for an online request from an account staff haven't linked to a patient yet.
+  // Such a request can wait, be declined or be cancelled, but not be confirmed (a check in
+  // the add_online_booking migration).
+  patientId        String?           @map("patient_id") @db.Uuid
+  // Filled in when a patient booked it online: the account that asked.
+  patientAccountId String?           @map("patient_account_id") @db.Uuid
   // Empty only for a request where the patient didn't mind which dentist.
-  dentistId  String?           @map("dentist_id") @db.Uuid
-  startsAt   DateTime          @map("starts_at") @db.Timestamptz(3)
-  endsAt     DateTime          @map("ends_at") @db.Timestamptz(3)
-  status     AppointmentStatus @default(REQUESTED)
+  dentistId        String?           @map("dentist_id") @db.Uuid
+  startsAt         DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt           DateTime          @map("ends_at") @db.Timestamptz(3)
+  status           AppointmentStatus @default(REQUESTED)
   // What the visit is for, like "Cleaning" or "Tooth ache, lower left".
-  reason     String?           @db.VarChar(500)
+  reason           String?           @db.VarChar(500)
   // Why it was declined or cancelled.
-  statusNote String?           @map("status_note") @db.VarChar(500)
-  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  statusNote       String?           @map("status_note") @db.VarChar(500)
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  clinic  Clinic  @relation(fields: [clinicId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  // Two columns each, so the patient and the dentist must belong to the same clinic.
-  patient Patient @relation(fields: [clinicId, patientId], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
-  dentist User?   @relation(fields: [clinicId, dentistId], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
+  patient        Patient?        @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  dentist        User?           @relation(fields: [dentistId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  patientAccount PatientAccount? @relation(fields: [patientAccountId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   toothRecords ToothRecord[]
 
-  @@unique([clinicId, id])
   // Lets a chart entry name the visit it was made in, and the database check it's this patient's.
-  @@unique([clinicId, patientId, id])
-  @@index([clinicId, startsAt])
-  @@index([clinicId, patientId, startsAt])
-  @@index([clinicId, status, startsAt])
+  @@unique([patientId, id])
+  @@index([startsAt])
+  @@index([patientId, startsAt])
+  @@index([status, startsAt])
+  @@index([patientAccountId, startsAt])
   @@map("appointments")
+}
+
+// A patient's own login for online booking. It is a separate kind of login from staff: a
+// patient can only ask for appointments and see their own, never any dental records.
+// Self-registered accounts are never matched to a patient record automatically, even by name
+// and birth date: staff link one (patient_id) after checking who it is.
+model PatientAccount {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  // Always lowercase (a check in the migration), and one account per email.
+  email            String    @db.VarChar(254)
+  passwordHash     String    @map("password_hash") @db.VarChar(255)
+  firstName        String    @map("first_name") @db.VarChar(100)
+  lastName         String    @map("last_name") @db.VarChar(100)
+  birthDate        DateTime  @map("birth_date") @db.Date
+  phone            String    @db.VarChar(30)
+  // An account can't be made without agreeing to the privacy notice, so this is never empty.
+  privacyConsentAt DateTime  @map("privacy_consent_at") @db.Timestamptz(3)
+  // Empty until they click the link in the first email. They can't log in before that.
+  emailVerifiedAt  DateTime? @map("email_verified_at") @db.Timestamptz(3)
+  // The patient record this account belongs to. Only staff set it.
+  patientId        String?   @map("patient_id") @db.Uuid
+  linkedAt         DateTime? @map("linked_at") @db.Timestamptz(3)
+  linkedById       String?   @map("linked_by_id") @db.Uuid
+  // The appointment asked for while signing up, held until the email is confirmed:
+  // { startsAt, dentistId | null, reason }.
+  pendingRequest   Json?     @map("pending_request")
+  failedLogins     Int       @default(0) @map("failed_logins")
+  lockedUntil      DateTime? @map("locked_until") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  patient  Patient? @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  linkedBy User?    @relation(fields: [linkedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  sessions     PatientSession[]
+  tokens       PatientToken[]
+  appointments Appointment[]
+  auditLogs    AuditLog[]
+
+  @@unique([email])
+  // A patient record has at most one online account.
+  @@unique([patientId])
+  @@map("patient_accounts")
+}
+
+// One row per device a patient is logged in on, like staff sessions. May be deleted.
+model PatientSession {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  // SHA-256 of the cookie's token, so a leaked database copy can't be used to log in.
+  tokenHash String   @unique @map("token_hash") @db.Char(64)
+  accountId String   @map("account_id") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account PatientAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+
+  @@index([accountId])
+  @@map("patient_sessions")
+}
+
+// A link sent by email: confirm the address, or set a new password. Each works once
+// (used_at), and only for a while. Like sessions, only a hash of it is stored.
+model PatientToken {
+  id        String              @id @default(uuid(7)) @db.Uuid
+  accountId String              @map("account_id") @db.Uuid
+  tokenHash String              @unique @map("token_hash") @db.Char(64)
+  purpose   PatientTokenPurpose
+  expiresAt DateTime            @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime?           @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account PatientAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+
+  @@index([accountId])
+  @@map("patient_tokens")
 }
 
 // One entry in a patient's dental chart: what was found on one tooth, by whom, and when.
@@ -259,7 +348,6 @@ model Appointment {
 // Prisma can't write here (see the end of add_dental_chart).
 model ToothRecord {
   id               String          @id @default(uuid(7)) @db.Uuid
-  clinicId         String          @map("clinic_id") @db.Uuid
   patientId        String          @map("patient_id") @db.Uuid
   // FDI number, "11" to "48". Baby teeth ("51" to "85") come later.
   tooth            String          @db.VarChar(2)
@@ -277,18 +365,16 @@ model ToothRecord {
   correctionReason String?         @map("correction_reason") @db.VarChar(500)
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  clinic      Clinic       @relation(fields: [clinicId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  patient     Patient      @relation(fields: [clinicId, patientId], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
-  recordedBy  User         @relation(fields: [clinicId, recordedById], references: [clinicId, id], onDelete: Restrict, onUpdate: Restrict)
-  // Three columns, so the visit must be this patient's, in this clinic.
-  appointment Appointment? @relation(fields: [clinicId, patientId, appointmentId], references: [clinicId, patientId, id], onDelete: Restrict, onUpdate: Restrict)
-  // Four columns, so a correction can only correct the same patient's same tooth.
-  corrects    ToothRecord? @relation("Correction", fields: [clinicId, patientId, tooth, correctsId], references: [clinicId, patientId, tooth, id], onDelete: Restrict, onUpdate: Restrict)
+  patient     Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  recordedBy  User         @relation(fields: [recordedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  // Two columns, so the visit must be this patient's.
+  appointment Appointment? @relation(fields: [patientId, appointmentId], references: [patientId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Three columns, so a correction can only correct the same patient's same tooth.
+  corrects    ToothRecord? @relation("Correction", fields: [patientId, tooth, correctsId], references: [patientId, tooth, id], onDelete: Restrict, onUpdate: Restrict)
   correctedBy ToothRecord? @relation("Correction")
 
-  @@unique([clinicId, id])
-  @@unique([clinicId, patientId, tooth, id])
-  @@unique([clinicId, patientId, tooth, correctsId])
-  @@index([clinicId, patientId, tooth, recordedAt])
+  @@unique([patientId, tooth, id])
+  @@unique([patientId, tooth, correctsId])
+  @@index([patientId, tooth, recordedAt])
   @@map("tooth_records")
 }

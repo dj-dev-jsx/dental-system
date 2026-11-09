@@ -14,7 +14,7 @@ export class ApiError extends Error {
 let onSessionEnded: (() => void) | null = null
 
 /**
- * Called when any request (other than the login routes) gets 401, meaning the session
+ * Called when any staff request (other than the login routes) gets 401, meaning the session
  * expired or was ended elsewhere. The auth store uses it to go back to the sign-in screen.
  */
 export function setSessionEndedHandler(handler: () => void) {
@@ -41,7 +41,8 @@ export async function api<T = void>(path: string, { json, headers, ...init }: Ap
   }
 
   if (!response.ok) {
-    if (response.status === 401 && !path.startsWith('/auth/')) onSessionEnded?.()
+    // The patient pages (/portal/...) have their own session: their 401s never end the staff one.
+    if (response.status === 401 && !path.startsWith('/auth/') && !(path === '/portal' || path.startsWith('/portal/') || path.startsWith('/portal?'))) onSessionEnded?.()
     let details: unknown
     try {
       details = await response.json()

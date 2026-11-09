@@ -15,8 +15,6 @@ describe('Clinic settings (e2e)', () => {
   let prisma: PrismaService;
   const owner = ownerClient();
   const http = () => request(app.getHttpServer());
-  let clinicId: string;
-  let otherClinicId: string;
 
   async function session(email: string) {
     const response = await http()
@@ -39,34 +37,16 @@ describe('Clinic settings (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(owner);
-    const clinic = await prisma.clinic.create({
-      data: { name: 'Clinic A', phone: '+63 912 345 6789' },
-    });
-    const other = await prisma.clinic.create({ data: { name: 'Clinic B' } });
-    clinicId = clinic.id;
-    otherClinicId = other.id;
+    await resetDatabase(owner, { name: 'Clinic A', phone: '+63 912 345 6789', onlineBookingEnabled: false });
     const passwordHash = await hashPassword(PASSWORD);
-    const mk = (
-      cid: string,
-      key: string,
-      role: 'ADMIN' | 'DENTIST' | 'RECEPTIONIST' | 'ASSISTANT',
-    ) =>
+    const mk = (key: string, role: 'ADMIN' | 'DENTIST' | 'RECEPTIONIST' | 'ASSISTANT') =>
       prisma.user.create({
-        data: {
-          clinicId: cid,
-          email: `${key}@test.example`,
-          passwordHash,
-          firstName: 'F',
-          lastName: 'L',
-          role,
-        },
+        data: { email: `${key}@test.example`, passwordHash, firstName: 'F', lastName: 'L', role },
       });
-    await mk(clinicId, 'admin', 'ADMIN');
-    await mk(clinicId, 'reception', 'RECEPTIONIST');
-    await mk(clinicId, 'dentist', 'DENTIST');
-    await mk(clinicId, 'assistant', 'ASSISTANT');
-    await mk(otherClinicId, 'adminb', 'ADMIN');
+    await mk('admin', 'ADMIN');
+    await mk('reception', 'RECEPTIONIST');
+    await mk('dentist', 'DENTIST');
+    await mk('assistant', 'ASSISTANT');
   });
 
   afterAll(async () => {
@@ -74,16 +54,34 @@ describe('Clinic settings (e2e)', () => {
     await owner.$disconnect();
   });
 
-  it('keeps the public hello route working', async () => {
-    await http().get('/api/v1/clinics/hello').expect(200);
+  it('has no hello route any more, and a public /site', async () => {
+    await http().get('/api/v1/clinics/hello').expect(404);
+    await http().get('/api/v1/clinics/site').expect(404);
+    const site = await http().get('/api/v1/site').expect(200);
+    expect(site.body).toEqual({
+      name: 'Clinic A',
+      address: null,
+      phone: '+63 912 345 6789',
+      email: null,
+      opensAt: 420,
+      closesAt: 1200,
+      onlineBookingEnabled: false,
+    });
+    expect(site.headers['cache-control']).toBe('no-store');
   });
 
-  it('shows every role their own clinic', async () => {
+  it('gives the clinic name with /auth/me', async () => {
+    const cookie = await session('reception@test.example');
+    const me = await http().get('/api/v1/auth/me').set('Cookie', cookie).expect(200);
+    expect(me.body.clinicName).toBe('Clinic A');
+    expect(me.body).not.toHaveProperty('clinicId');
+  });
+
+  it('shows every role the clinic settings', async () => {
     for (const key of ['admin', 'reception', 'dentist', 'assistant']) {
       const cookie = await session(`${key}@test.example`);
       const res = await http().get('/api/v1/clinic').set('Cookie', cookie).expect(200);
       expect(res.body).toEqual({
-        id: clinicId,
         name: 'Clinic A',
         address: null,
         phone: '+63 912 345 6789',
@@ -91,27 +89,25 @@ describe('Clinic settings (e2e)', () => {
         opensAt: 420,
         closesAt: 1200,
         defaultVisitMinutes: 30,
+        onlineBookingEnabled: false,
         updatedAt: expect.any(String),
       });
       expect(Number.isNaN(Date.parse(res.body.updatedAt))).toBe(false);
       expect(res.headers['cache-control']).toBe('no-store');
     }
     await http().get('/api/v1/clinic').expect(401);
-    const cookieB = await session('adminb@test.example');
-    const b = await http().get('/api/v1/clinic').set('Cookie', cookieB).expect(200);
-    expect(b.body.id).toBe(otherClinicId);
   });
 
-  it('lets only admins update, and refuses a clinic id in the body', async () => {
+  it('lets only admins update, and refuses unknown fields like id or slug', async () => {
     for (const key of ['reception', 'dentist', 'assistant']) {
       const cookie = await session(`${key}@test.example`);
       await http().patch('/api/v1/clinic').set('Cookie', cookie).send({ name: 'Nope' }).expect(403);
     }
     const admin = await session('admin@test.example');
-    await http().patch('/api/v1/clinic').set('Cookie', admin).send({ id: otherClinicId, name: 'X' }).expect(400);
+    await http().patch('/api/v1/clinic').set('Cookie', admin).send({ id: 2, name: 'X' }).expect(400);
+    await http().patch('/api/v1/clinic').set('Cookie', admin).send({ slug: 'clinic-a' }).expect(400);
     await http().patch('/api/v1/clinic').set('Cookie', admin).send({ name: 'Renamed' }).expect(200);
-    const b = await owner.clinic.findUniqueOrThrow({ where: { id: otherClinicId } });
-    expect(b.name).toBe('Clinic B');
+    expect((await owner.clinicSettings.findUniqueOrThrow({ where: { id: 1 } })).name).toBe('Renamed');
   });
 
   it('updates fields, saves only real changes and audits them as strings', async () => {
@@ -130,7 +126,6 @@ describe('Clinic settings (e2e)', () => {
       })
       .expect(200);
     expect(res.body).toEqual({
-      id: clinicId,
       name: 'New Name',
       address: '1 Test St',
       phone: '+63 2 8123 4567',
@@ -138,6 +133,7 @@ describe('Clinic settings (e2e)', () => {
       opensAt: 480,
       closesAt: 1080,
       defaultVisitMinutes: 45,
+      onlineBookingEnabled: false,
       updatedAt: expect.any(String),
     });
     const lines = await audit();
@@ -206,7 +202,33 @@ describe('Clinic settings (e2e)', () => {
     await http().patch('/api/v1/clinic').set('Cookie', admin).send({ opensAt: 1250 }).expect(400);
     await http().patch('/api/v1/clinic').set('Cookie', admin).send({ closesAt: 420 }).expect(409);
     await http().patch('/api/v1/clinic').set('Cookie', admin).send({ closesAt: 435 }).expect(200);
-    const row = await owner.clinic.findUniqueOrThrow({ where: { id: clinicId } });
+    const row = await owner.clinicSettings.findUniqueOrThrow({ where: { id: 1 } });
     expect([row.opensAt, row.closesAt]).toEqual([420, 435]);
+  });
+
+  it('switches online booking on and off', async () => {
+    const admin = await session('admin@test.example');
+    const patch = (body: object) => http().patch('/api/v1/clinic').set('Cookie', admin).send(body);
+    const res = await patch({ onlineBookingEnabled: true }).expect(200);
+    expect(res.body).toMatchObject({ onlineBookingEnabled: true });
+    const lines = await audit();
+    expect(lines.at(-1)!.metadata).toEqual({
+      changes: { onlineBookingEnabled: { from: 'false', to: 'true' } },
+    });
+    expect((await http().get('/api/v1/site').expect(200)).body.onlineBookingEnabled).toBe(true);
+    await patch({ onlineBookingEnabled: false }).expect(200);
+    const get = await http().get('/api/v1/clinic').set('Cookie', admin).expect(200);
+    expect(get.body).toMatchObject({ onlineBookingEnabled: false });
+  });
+
+  it('keeps exactly one settings row, whatever the code does', async () => {
+    await expect(owner.clinicSettings.create({ data: { id: 2, name: 'Second' } })).rejects.toThrow(
+      /clinic_settings_single_row/,
+    );
+    await expect(
+      owner.clinicSettings.update({ where: { id: 1 }, data: { opensAt: 900, closesAt: 600 } }),
+    ).rejects.toThrow(/clinic_settings_hours_make_sense/);
+    // The API's own login can't remove the row.
+    await expect(prisma.clinicSettings.delete({ where: { id: 1 } })).rejects.toThrow(/permission denied/i);
   });
 });

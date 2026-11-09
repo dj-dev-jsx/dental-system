@@ -15,6 +15,7 @@ export const updateClinicSchema = z
     opensAt: minuteOfDay,
     closesAt: minuteOfDay,
     defaultVisitMinutes: z.number().int().min(5).max(480).multipleOf(5),
+    onlineBookingEnabled: z.boolean(),
   })
   .partial()
   .refine((input) => Object.keys(input).length > 0, 'Send at least one field to change')

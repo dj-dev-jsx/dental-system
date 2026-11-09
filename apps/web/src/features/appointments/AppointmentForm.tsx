@@ -21,6 +21,7 @@ import { DentistField, WhenFields } from './AppointmentFields'
 import { type ChosenPatient, PatientPicker } from './PatientPicker'
 import { type FieldErrors, fieldErrorsFrom, readWhen } from './appointmentInput'
 import { useAvailability, useDentists } from './queries'
+import { whoName } from './requester'
 import type { Appointment } from './types'
 
 export type AppointmentValues = {
@@ -69,7 +70,7 @@ export function AppointmentForm({ appointment, initialPatient = null, initialDat
   // A new booking starts with the clinic's usual visit length (30 minutes until it loads).
   const defaultVisitMinutes = useClinic().data?.defaultVisitMinutes ?? 30
   const [patient, setPatient] = useState<ChosenPatient | null>(
-    appointment ? { id: appointment.patient.id, name: fullName(appointment.patient), detail: '' } : initialPatient,
+    appointment?.patient ? { id: appointment.patient.id, name: fullName(appointment.patient), detail: '' } : initialPatient,
   )
   const [errors, setErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
@@ -183,7 +184,7 @@ export function AppointmentForm({ appointment, initialPatient = null, initialDat
 
       <Section title="Patient">
         {appointment ? (
-          <p className="font-semibold">{fullName(appointment.patient)}</p>
+          <p className="font-semibold">{whoName(appointment)}</p>
         ) : (
           <PatientPicker chosen={patient} onChoose={setPatient} error={errors.patientId} />
         )}

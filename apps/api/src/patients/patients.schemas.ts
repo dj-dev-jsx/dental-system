@@ -35,7 +35,7 @@ const patientFields = {
 };
 
 // Strict objects refuse unknown fields. Without this, someone could try sending their own
-// clinicId or archivedAt and hope it gets saved.
+// archivedAt and hope it gets saved.
 export const createPatientSchema = z.strictObject(patientFields);
 
 // In an update, a missing field means "leave it alone", and null means "clear it".

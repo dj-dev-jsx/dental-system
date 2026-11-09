@@ -13,6 +13,7 @@ import type { Appointment } from '../appointments/types'
 import { usePatientAppointmentSummary } from '../appointments/usePatientAppointmentSummary'
 import { useStaffUser } from '../auth/authStore'
 import { CONDITIONS, STATUS_COLORS, STATUS_LABELS, statusOf } from '../dental-chart/model/status'
+import { OnlineAccountSection } from '../patient-accounts/OnlineAccountSection'
 import { DetailPane, PANE_X } from './DetailPane'
 import { useWorkspaceLink } from './listParams'
 import { PatientHistory } from './PatientHistory'
@@ -152,6 +153,7 @@ export default function PatientPage() {
           <div className="mt-12 grid gap-12">
             <PatientAppointments patientId={id} canBook={!archived} />
             <ContactSection patient={patient} archived={archived} />
+            {patient.onlineAccount && <OnlineAccountSection patientId={id} account={patient.onlineAccount} canUnlink={isAdmin} />}
             <RecordDetails patient={patient} canArchive={isAdmin && !archived} />
             {isAdmin && <PatientHistory patientId={id} />}
           </div>

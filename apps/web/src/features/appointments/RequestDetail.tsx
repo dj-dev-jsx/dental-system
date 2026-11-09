@@ -1,16 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useOutletContext, useParams } from 'react-router'
-import { buttonOnLight, buttonOutline } from '../../components/buttons'
+import { buttonBlocked, buttonOnLight, buttonOutline } from '../../components/buttons'
 import { ErrorBox } from '../../components/ErrorBox'
-import { AlertIcon } from '../../components/icons'
+import { AlertIcon, CheckIcon } from '../../components/icons'
 import { DetailBack } from '../../components/SplitView'
 import { Pill } from '../../components/Table'
 import { api, errorMessage } from '../../lib/api'
-import { dentistName, formatDateTime, formatDayLong, formatTimeRange, fullName, manilaDate, minutesBetween } from '../../lib/format'
+import { dentistName, formatDateTime, formatDayLong, formatTimeRange, manilaDate, minutesBetween } from '../../lib/format'
+import { WhoIsThis } from '../patient-accounts/WhoIsThis'
 import { ClosePanel, ConfirmPanel } from './AppointmentActions'
 import { DoneNotice, type RequestsContext } from './RequestsWorkspace'
 import { type Appointment, STATUS_LABELS } from './types'
+import { NotLinkedPill, OnlinePill } from './RequesterPills'
+import { NOT_LINKED_REASON, patientPath, whoName, whoPhone } from './requester'
 import { overdueReason, waitedFor, waitingFor } from './waiting'
 
 /**
@@ -75,10 +78,17 @@ function Request({ request, context }: { request: Appointment; context: Requests
   const [panel, setPanel] = useState<'confirm' | 'decline' | null>(null)
   const [now] = useState(Date.now)
   const heading = useRef<HTMLHeadingElement>(null)
+  const whoHeading = useRef<HTMLHeadingElement>(null)
+  const [linked, setLinked] = useState<string | null>(null)
   const waiting = request.status === 'REQUESTED'
   const urgent = waiting ? overdueReason(request, now) : null
   const day = manilaDate(request.startsAt)
   const minutes = minutesBetween(request.startsAt, request.endsAt)
+  const record = patientPath(request)
+  const online = request.source === 'ONLINE'
+  // An online request from someone not yet tied to a record: staff say who it is before confirming.
+  const unlinked = request.patient === null
+  const phone = whoPhone(request)
 
   // Opening the next request after answering one puts the cursor on its name, so keyboard
   // and screen reader users carry on from the top of the new request.
@@ -94,21 +104,38 @@ function Request({ request, context }: { request: Appointment; context: Requests
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
           <div className="min-w-0">
             <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold tracking-[-0.02em] outline-none">
-              <Link to={`/app/patients/${request.patient.id}`} className="outline-neutral-950 hover:underline hover:underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2">
-                {fullName(request.patient)}
-              </Link>
+              {record ? (
+                <Link to={record} className="outline-neutral-950 hover:underline hover:underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2">
+                  {whoName(request)}
+                </Link>
+              ) : (
+                whoName(request)
+              )}
             </h1>
-            <p className="mt-0.5 text-neutral-600 tabular-nums">{request.patient.phone ?? 'No phone number'}</p>
+            <p className="mt-0.5 text-neutral-600">
+              <span className="tabular-nums">{phone ?? 'No phone number'}</span>
+              {unlinked && request.requester && <span className="break-all"> · {request.requester.email}</span>}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
             <Pill tone={waiting ? 'outline' : 'muted'}>{STATUS_LABELS[request.status]}</Pill>
+            {online && <OnlinePill />}
+            {unlinked && <NotLinkedPill />}
             {urgent && <Pill tone="solid">{urgent}</Pill>}
             {waiting && request.conflict && <Pill tone="outline">Clash</Pill>}
           </div>
         </div>
       </header>
 
-      <div className="max-w-3xl px-6 pt-8 pb-12 lg:px-10">
+      <div className="@container max-w-3xl px-6 pt-8 pb-12 lg:px-10">
+        {linked && (
+          <div role="status" className="mb-8 flex items-start gap-2.5 rounded-md bg-neutral-100 px-4 py-3 text-sm/6">
+            <CheckIcon className="mt-1 size-4 shrink-0" />
+            <p>
+              <span className="font-semibold">{linked}</span> {waiting && !unlinked && 'You can confirm the request now.'}
+            </p>
+          </div>
+        )}
         <section aria-labelledby="asked-for">
           <h2 id="asked-for" className="text-sm font-semibold text-neutral-600">
             {waiting ? 'Asked for' : 'Was asked for'}
@@ -132,16 +159,36 @@ function Request({ request, context }: { request: Appointment; context: Requests
           </div>
         )}
 
+        {waiting && unlinked && request.requester && <WhoIsThis requester={request.requester} onLinked={setLinked} headingRef={whoHeading} />}
+
         {waiting ? (
-          <div className="mt-8">
+          <div className={unlinked && panel === null ? 'mt-10 border-t border-neutral-200 pt-6' : 'mt-8'}>
             {panel === null ? (
-              <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={() => setPanel('confirm')} className={`${buttonOnLight} h-11 px-6`}>
-                  Confirm…
-                </button>
+              <div className="flex flex-wrap items-center gap-3">
+                {unlinked ? (
+                  // Not disabled, so it stays focusable and says why; a click goes to the step that unblocks it.
+                  <button
+                    type="button"
+                    aria-disabled="true"
+                    aria-describedby={`not-linked-${request.id}`}
+                    onClick={() => whoHeading.current?.focus()}
+                    className={`${buttonBlocked} h-11 px-6`}
+                  >
+                    Confirm…
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => setPanel('confirm')} className={`${buttonOnLight} h-11 px-6`}>
+                    Confirm…
+                  </button>
+                )}
                 <button type="button" onClick={() => setPanel('decline')} className={`${buttonOutline} h-11 px-5`}>
                   Decline…
                 </button>
+                {unlinked && (
+                  <p id={`not-linked-${request.id}`} className="basis-full text-sm text-neutral-600">
+                    {NOT_LINKED_REASON} You can decline without linking.
+                  </p>
+                )}
               </div>
             ) : panel === 'confirm' ? (
               <ConfirmPanel appointment={request} onBack={() => setPanel(null)} onConfirmed={(appointment) => context.onDone({ appointment, action: 'confirmed' })} />
@@ -171,6 +218,13 @@ function Request({ request, context }: { request: Appointment; context: Requests
             </Fact>
             {waiting && <Fact label="Waited">{waitingFor(request.createdAt, now).replace('Waiting ', '').replace('Just in', 'Under two minutes')}</Fact>}
             <Fact label="Dentist">{request.dentist ? dentistName(request.dentist) : 'No preference'}</Fact>
+            {online && <Fact label="Made">Online, by the patient</Fact>}
+            {!waiting && unlinked && request.requester && (
+              <Fact label="Contact">
+                <span className="tabular-nums">{request.requester.phone}</span> · <span className="break-all">{request.requester.email}</span>
+                <span className="block text-sm text-neutral-500">As they gave it online. Not linked to a patient record.</span>
+              </Fact>
+            )}
           </dl>
           <p className="mt-4 text-sm">
             <Link to={`/app/appointments/${request.id}`} className="font-medium text-neutral-600 underline underline-offset-3 hover:text-neutral-950">

@@ -6,6 +6,7 @@ import { None, Pill, RowLink, Sub, Table, Td, Tr } from '../../components/Table'
 import { errorMessage } from '../../lib/api'
 import { dentistName, formatDate, formatTimeRange, manilaDate } from '../../lib/format'
 import { RecordSection } from '../patients/RecordSection'
+import { OnlinePill } from './RequesterPills'
 import { usePatientAppointmentSummary } from './usePatientAppointmentSummary'
 import { type Appointment, type AppointmentStatus, STATUS_LABELS } from './types'
 
@@ -110,7 +111,10 @@ function Row({ appointment, past = false }: { appointment: Appointment; past?: b
       <Td>{appointment.dentist ? dentistName(appointment.dentist) : <span className="text-neutral-500">Any dentist</span>}</Td>
       <Td hideBelow="md">{appointment.reason ?? <None />}</Td>
       <Td align="right">
-        <Pill tone={TONES[appointment.status]}>{STATUS_LABELS[appointment.status]}</Pill>
+        <span className="inline-flex flex-wrap justify-end gap-1.5">
+          {appointment.source === 'ONLINE' && <OnlinePill />}
+          <Pill tone={TONES[appointment.status]}>{STATUS_LABELS[appointment.status]}</Pill>
+        </span>
       </Td>
     </Tr>
   )

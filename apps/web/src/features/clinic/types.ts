@@ -1,6 +1,5 @@
 /** The clinic's settings, as GET /clinic returns them. */
 export type Clinic = {
-  id: string
   name: string
   address: string | null
   phone: string | null
@@ -10,9 +9,11 @@ export type Clinic = {
   closesAt: number
   /** How long a new appointment lasts unless staff pick another length, in minutes. */
   defaultVisitMinutes: number
+  /** Whether patients can ask for appointments on the booking page, /book. */
+  onlineBookingEnabled: boolean
   /** When the settings were last saved. */
   updatedAt: string
 }
 
 /** What PATCH /clinic accepts: any of the fields, only the ones that changed. */
-export type ClinicInput = Partial<Omit<Clinic, 'id' | 'updatedAt'>>
+export type ClinicInput = Partial<Omit<Clinic, 'updatedAt'>>

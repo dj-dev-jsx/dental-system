@@ -137,3 +137,34 @@ input {
     animation: none;
   }
 }
+
+/* Patient pages: steps and outcomes settle in, quickly, from already-visible. */
+@keyframes rise-in {
+  from {
+    transform: translateY(0.5rem);
+    opacity: 0.4;
+  }
+}
+
+.rise-in {
+  animation: rise-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* The tick on "Request sent" draws once. */
+@keyframes tick-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+.tick-draw {
+  stroke-dasharray: 1;
+  animation: tick-draw 420ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise-in,
+  .tick-draw {
+    animation: none;
+  }
+}

@@ -16,5 +16,20 @@ services:
       - dental_postgres_data:/var/lib/postgresql
       - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
 
+  # Catches every email the API sends in development, so nothing reaches a real inbox.
+  # Read them at http://localhost:8025. Start just this one: docker compose up -d mailpit
+  mailpit:
+    image: axllent/mailpit:v1.31.6
+    container_name: dental-mailpit
+    restart: unless-stopped
+    environment:
+      # Fake mail only on this computer, so no login is needed to send or read.
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      MP_MAX_MESSAGES: "500"
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP: the API sends here
+      - "127.0.0.1:8025:8025" # web page to read what was "sent"
+
 volumes:
   dental_postgres_data:

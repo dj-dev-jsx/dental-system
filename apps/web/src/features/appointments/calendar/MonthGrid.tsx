@@ -1,5 +1,6 @@
 import { formatDayLong, formatTimeRange, manilaClock, todayInManila } from '../../../lib/format'
 import type { Appointment } from '../types'
+import { whoName } from '../requester'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MAX_SHOWN = 3
@@ -62,7 +63,7 @@ export function MonthGrid({ days, month, byDay, selectedId, onOpenDay, onSelect 
                       event.stopPropagation()
                       onSelect(appointment)
                     }}
-                    aria-label={`${request ? 'Request: ' : ''}${appointment.patient.firstName} ${appointment.patient.lastName}, ${formatTimeRange(appointment.startsAt, appointment.endsAt)}`}
+                    aria-label={`${request ? 'Request: ' : ''}${whoName(appointment)}${appointment.patient ? '' : ' (not linked to a patient record)'}, ${formatTimeRange(appointment.startsAt, appointment.endsAt)}`}
                     className={`flex min-w-0 items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs/4 outline-neutral-950 focus-visible:outline-2 ${
                       selected ? 'bg-neutral-950 text-white' : 'hover:bg-neutral-200'
                     }`}
@@ -73,7 +74,7 @@ export function MonthGrid({ days, month, byDay, selectedId, onOpenDay, onSelect 
                     />
                     <span className={`shrink-0 tabular-nums ${selected ? 'text-neutral-300' : 'text-neutral-500'}`}>{shortClock(appointment.startsAt)}</span>
                     <span className="truncate font-medium">
-                      {appointment.patient.firstName} {appointment.patient.lastName}
+                      {whoName(appointment)}
                     </span>
                   </button>
                 )

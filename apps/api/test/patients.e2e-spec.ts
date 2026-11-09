@@ -17,13 +17,10 @@ describe('Patients (e2e)', () => {
   let app: INestApplication;
   let passwordHash: string;
   const owner = ownerClient();
-  // Logged-in cookies, by role, for Clinic A, plus one admin for Clinic B.
-  const cookies = {} as Record<UserRole | 'ADMIN_B', string>;
-  let clinicA: string;
-  let clinicB: string;
+  // Logged-in cookies, by role.
+  const cookies = {} as Record<UserRole, string>;
   let adminA: string;
-  let maria: string; // a Clinic A patient
-  let bea: string; // a Clinic B patient
+  let maria: string;
 
   const http = () => request(app.getHttpServer());
   const as = (who: keyof typeof cookies) => ({
@@ -35,9 +32,9 @@ describe('Patients (e2e)', () => {
 
   const newPatient = { firstName: 'Pedro', lastName: 'Penduko', birthDate: '2011-07-21' };
 
-  async function addStaff(clinicId: string, role: UserRole, email: string) {
+  async function addStaff(role: UserRole, email: string) {
     const user = await owner.user.create({
-      data: { clinicId, email, passwordHash, firstName: 'T', lastName: role, role },
+      data: { email, passwordHash, firstName: 'T', lastName: role, role },
     });
     const response = await http()
       .post('/api/v1/auth/login')
@@ -60,36 +57,22 @@ describe('Patients (e2e)', () => {
 
   beforeEach(async () => {
     await resetDatabase(owner);
-    clinicA = (await owner.clinic.create({ data: { name: 'Clinic A' } })).id;
-    clinicB = (await owner.clinic.create({ data: { name: 'Clinic B' } })).id;
 
-    const admin = await addStaff(clinicA, 'ADMIN', 'admin@a.example');
+    const admin = await addStaff('ADMIN', 'admin@a.example');
     adminA = admin.id;
     cookies.ADMIN = admin.cookie;
-    cookies.DENTIST = (await addStaff(clinicA, 'DENTIST', 'dentist@a.example')).cookie;
-    cookies.RECEPTIONIST = (await addStaff(clinicA, 'RECEPTIONIST', 'desk@a.example')).cookie;
-    cookies.ASSISTANT = (await addStaff(clinicA, 'ASSISTANT', 'assist@a.example')).cookie;
-    cookies.ADMIN_B = (await addStaff(clinicB, 'ADMIN', 'admin@b.example')).cookie;
+    cookies.DENTIST = (await addStaff('DENTIST', 'dentist@a.example')).cookie;
+    cookies.RECEPTIONIST = (await addStaff('RECEPTIONIST', 'desk@a.example')).cookie;
+    cookies.ASSISTANT = (await addStaff('ASSISTANT', 'assist@a.example')).cookie;
 
     maria = (
       await owner.patient.create({
         data: {
-          clinicId: clinicA,
           firstName: 'Maria',
           lastName: 'Dela Cruz',
           birthDate: new Date('1985-03-14'),
           phone: '0900 000 0001',
           address: '1 Secret Street',
-        },
-      })
-    ).id;
-    bea = (
-      await owner.patient.create({
-        data: {
-          clinicId: clinicB,
-          firstName: 'Bea',
-          lastName: 'Bautista',
-          birthDate: new Date('1990-01-30'),
         },
       })
     ).id;
@@ -100,44 +83,23 @@ describe('Patients (e2e)', () => {
     await owner.$disconnect();
   });
 
+  it('refuses fields like a clinic id when creating', async () => {
+    await as('ADMIN').post(URL).send({ ...newPatient, clinicId: randomUUID() }).expect(400);
+  });
+
+  it('answers for a patient that does not exist with 404', async () => {
+    await as('ADMIN').get(`${URL}/${randomUUID()}`).expect(404);
+    await as('ADMIN').patch(`${URL}/${randomUUID()}`).send({ firstName: 'X' }).expect(404);
+    await as('ADMIN').post(`${URL}/${randomUUID()}/archive`).expect(404);
+    await as('ADMIN').post(`${URL}/${randomUUID()}/restore`).expect(404);
+  });
+
   it('requires a login for every route', async () => {
     await http().get(URL).expect(401);
     await http().post(URL).send(newPatient).expect(401);
     await http().get(`${URL}/${maria}`).expect(401);
     await http().patch(`${URL}/${maria}`).send({ firstName: 'X' }).expect(401);
     await http().post(`${URL}/${maria}/archive`).expect(401);
-  });
-
-  describe('keeping clinics apart', () => {
-    it("never lists another clinic's patients, even when searching for them", async () => {
-      const all = await as('ADMIN').get(URL).expect(200);
-      expect(all.body.items.map((patient: { id: string }) => patient.id)).toEqual([maria]);
-      expect(all.body.total).toBe(1);
-
-      const search = await as('ADMIN').get(URL).query({ search: 'Bautista' }).expect(200);
-      expect(search.body.items).toEqual([]);
-      expect(search.body.total).toBe(0);
-    });
-
-    it("answers a request for another clinic's patient as if it doesn't exist", async () => {
-      const otherClinic = await as('ADMIN').get(`${URL}/${bea}`).expect(404);
-      const noSuchPatient = await as('ADMIN').get(`${URL}/${randomUUID()}`).expect(404);
-      expect(otherClinic.body).toEqual(noSuchPatient.body);
-    });
-
-    it("can't change or archive another clinic's patient", async () => {
-      await as('ADMIN').patch(`${URL}/${bea}`).send({ firstName: 'Hacked' }).expect(404);
-      await as('ADMIN').post(`${URL}/${bea}/archive`).expect(404);
-      const stored = await owner.patient.findUniqueOrThrow({ where: { id: bea } });
-      expect(stored.firstName).toBe('Bea');
-      expect(stored.archivedAt).toBeNull();
-    });
-
-    it('always uses the clinic of the logged-in user', async () => {
-      const created = await as('ADMIN_B').post(URL).send(newPatient).expect(201);
-      expect(created.body.clinicId).toBe(clinicB);
-      await as('ADMIN').post(URL).send({ ...newPatient, clinicId: clinicB }).expect(400);
-    });
   });
 
   describe('roles', () => {
@@ -194,7 +156,7 @@ describe('Patients (e2e)', () => {
       ['a timestamp the server should set', { archivedAt: '2020-01-01T00:00:00Z' }],
     ])('refuses %s', async (_label, change) => {
       await as('ADMIN').post(URL).send({ ...newPatient, ...change }).expect(400);
-      expect(await owner.patient.count({ where: { clinicId: clinicA } })).toBe(1);
+      expect(await owner.patient.count({})).toBe(1);
     });
 
     it('allows a birth date of today in Manila, before UTC has reached that day', () => {
@@ -245,7 +207,7 @@ describe('Patients (e2e)', () => {
     it('rejects bad paging values', async () => {
       await as('ADMIN').get(URL).query({ limit: 101 }).expect(400);
       await as('ADMIN').get(URL).query({ page: 0 }).expect(400);
-      await as('ADMIN').get(URL).query({ clinicId: clinicB }).expect(400);
+      await as('ADMIN').get(URL).query({ clinicId: randomUUID() }).expect(400);
     });
 
     it('leaves the address and other details out of the list', async () => {
@@ -259,7 +221,6 @@ describe('Patients (e2e)', () => {
     const HOUR = 3_600_000;
     const at = (hours: number) => new Date(Date.now() + hours * HOUR);
     const book = (
-      clinicId: string,
       patientId: string,
       startHours: number,
       status: 'REQUESTED' | 'CONFIRMED' | 'CANCELLED' | 'DECLINED' = 'CONFIRMED',
@@ -267,7 +228,6 @@ describe('Patients (e2e)', () => {
     ) =>
       owner.appointment.create({
         data: {
-          clinicId,
           patientId,
           dentistId,
           startsAt: at(startHours),
@@ -292,10 +252,10 @@ describe('Patients (e2e)', () => {
     };
 
     it('shows the soonest upcoming request or confirmed visit, with the dentist', async () => {
-      await book(clinicA, maria, 72);
-      const soonest = await book(clinicA, maria, 24, 'REQUESTED');
-      await book(clinicA, maria, 5, 'CANCELLED');
-      await book(clinicA, maria, 6, 'DECLINED');
+      await book(maria, 72);
+      const soonest = await book(maria, 24, 'REQUESTED');
+      await book(maria, 5, 'CANCELLED');
+      await book(maria, 6, 'DECLINED');
       const response = await as('ADMIN').get(URL).query({ search: 'maria' }).expect(200);
       const item = response.body.items[0];
       expect(item.nextAppointment).toMatchObject({
@@ -307,30 +267,19 @@ describe('Patients (e2e)', () => {
     });
 
     it('gives a null dentist for a request that named none', async () => {
-      await book(clinicA, maria, 24, 'REQUESTED', null);
+      await book(maria, 24, 'REQUESTED', null);
       const response = await as('ADMIN').get(URL).query({ search: 'maria' }).expect(200);
       expect(response.body.items[0].nextAppointment.dentist).toBeNull();
     });
 
     it('reports the end of the latest confirmed visit that already ended', async () => {
-      await book(clinicA, maria, -96);
-      const latest = await book(clinicA, maria, -48);
-      await book(clinicA, maria, -24, 'CANCELLED');
-      await book(clinicA, maria, 24);
+      await book(maria, -96);
+      const latest = await book(maria, -48);
+      await book(maria, -24, 'CANCELLED');
+      await book(maria, 24);
       const response = await as('ADMIN').get(URL).query({ search: 'maria' }).expect(200);
       expect(response.body.items[0].lastVisitAt).toBe(latest.endsAt.toISOString());
       expect(response.body.items[0].nextAppointment).not.toBeNull();
-    });
-
-    it("never shows another clinic's appointments", async () => {
-      await book(clinicB, bea, 24, 'REQUESTED', null);
-      const response = await as('ADMIN').get(URL).expect(200);
-      for (const item of response.body.items) {
-        expect(item.nextAppointment).toBeNull();
-        expect(item.lastVisitAt).toBeNull();
-      }
-      const other = await as('ADMIN_B').get(URL).expect(200);
-      expect(other.body.items[0].nextAppointment).not.toBeNull();
     });
 
     it('sorts by name in either direction', async () => {
@@ -339,16 +288,16 @@ describe('Patients (e2e)', () => {
     });
 
     it('sorts by next appointment, soonest first, with patients who have none last', async () => {
-      await book(clinicA, zamora, 10);
-      await book(clinicA, maria, 30);
+      await book(zamora, 10);
+      await book(maria, 30);
       expect(await order({ sort: 'nextAppointment' })).toEqual(['Zamora', 'Dela Cruz', 'Abad']);
       expect(await order({ sort: 'nextAppointment', dir: 'desc' })).toEqual(['Dela Cruz', 'Zamora', 'Abad']);
     });
 
     it('sorts by last visit, with patients never seen last in both directions', async () => {
-      await book(clinicA, abad, -100);
-      await book(clinicA, maria, -10);
-      await book(clinicA, zamora, 10); // upcoming only: no visit yet
+      await book(abad, -100);
+      await book(maria, -10);
+      await book(zamora, 10); // upcoming only: no visit yet
       expect(await order({ sort: 'lastVisit' })).toEqual(['Abad', 'Dela Cruz', 'Zamora']);
       expect(await order({ sort: 'lastVisit', dir: 'desc' })).toEqual(['Dela Cruz', 'Abad', 'Zamora']);
     });
@@ -369,7 +318,7 @@ describe('Patients (e2e)', () => {
     });
 
     it('keeps search and the archived view working while sorted', async () => {
-      await book(clinicA, zamora, 10);
+      await book(zamora, 10);
       const found = await as('ADMIN').get(URL).query({ sort: 'lastVisit', search: 'zamora' }).expect(200);
       expect(found.body.total).toBe(1);
       expect(found.body.items[0].lastName).toBe('Zamora');
@@ -397,14 +346,14 @@ describe('Patients (e2e)', () => {
     it('includes the next appointment, last visit and a chart summary without logging a chart view', async () => {
       const day = 24 * 3_600_000;
       const upcoming = await owner.appointment.create({
-        data: { clinicId: clinicA, patientId: maria, dentistId: adminA, startsAt: new Date(Date.now() + day), endsAt: new Date(Date.now() + day + 1_800_000), status: 'CONFIRMED' },
+        data: { patientId: maria, dentistId: adminA, startsAt: new Date(Date.now() + day), endsAt: new Date(Date.now() + day + 1_800_000), status: 'CONFIRMED' },
       });
       await owner.appointment.create({
-        data: { clinicId: clinicA, patientId: maria, dentistId: adminA, startsAt: new Date(Date.now() - 3 * day), endsAt: new Date(Date.now() - 3 * day + 1_800_000), status: 'CONFIRMED' },
+        data: { patientId: maria, dentistId: adminA, startsAt: new Date(Date.now() - 3 * day), endsAt: new Date(Date.now() - 3 * day + 1_800_000), status: 'CONFIRMED' },
       });
       const record = (tooth: string, condition: 'DECAYED' | 'FILLED' | null, hoursAgo: number, extra = {}) =>
         owner.toothRecord.create({
-          data: { clinicId: clinicA, patientId: maria, tooth, condition, recordedById: adminA, recordedAt: new Date(Date.now() - hoursAgo * 3_600_000), ...extra },
+          data: { patientId: maria, tooth, condition, recordedById: adminA, recordedAt: new Date(Date.now() - hoursAgo * 3_600_000), ...extra },
         });
       await record('16', 'DECAYED', 10);
       const wrong = await record('26', 'FILLED', 9);
@@ -427,14 +376,6 @@ describe('Patients (e2e)', () => {
       expect(response.body.chartSummary).toEqual({ counts: {}, latest: null });
     });
 
-    it("doesn't leak another clinic's chart or appointments", async () => {
-      await owner.appointment.create({
-        data: { clinicId: clinicB, patientId: bea, startsAt: new Date(Date.now() + 3_600_000), endsAt: new Date(Date.now() + 7_200_000), status: 'REQUESTED' },
-      });
-      await as('ADMIN').get(`${URL}/${bea}`).expect(404);
-      const response = await as('ADMIN_B').get(`${URL}/${bea}`).expect(200);
-      expect(response.body.nextAppointment).not.toBeNull();
-    });
   });
 
   describe('viewing', () => {
@@ -475,7 +416,7 @@ describe('Patients (e2e)', () => {
     it('refuses an empty update, a cleared required field and unknown fields', async () => {
       await as('ADMIN').patch(`${URL}/${maria}`).send({}).expect(400);
       await as('ADMIN').patch(`${URL}/${maria}`).send({ firstName: null }).expect(400);
-      await as('ADMIN').patch(`${URL}/${maria}`).send({ clinicId: clinicB }).expect(400);
+      await as('ADMIN').patch(`${URL}/${maria}`).send({ clinicId: randomUUID() }).expect(400);
     });
 
     it('records when consent was given, and keeps that date', async () => {
@@ -538,12 +479,6 @@ describe('Patients (e2e)', () => {
       expect(await owner.auditLog.count({ where: { action: 'PATIENT_RESTORED' } })).toBe(0);
     });
 
-    it("can't restore another clinic's patient", async () => {
-      await owner.patient.update({ where: { id: bea }, data: { archivedAt: new Date() } });
-      await as('ADMIN').post(`${URL}/${bea}/restore`).expect(404);
-      const stored = await owner.patient.findUniqueOrThrow({ where: { id: bea } });
-      expect(stored.archivedAt).not.toBeNull();
-    });
   });
 
   describe('audit log', () => {
@@ -570,7 +505,6 @@ describe('Patients (e2e)', () => {
       ]);
       for (const log of logs) {
         expect(log.actorUserId).toBe(adminA);
-        expect(log.clinicId).toBe(clinicA);
       }
     });
 
@@ -616,7 +550,7 @@ describe('Patients (e2e)', () => {
     });
 
     it('logs nothing when a lookup finds no patient', async () => {
-      await as('ADMIN').get(`${URL}/${bea}`).expect(404);
+      await as('ADMIN').get(`${URL}/${randomUUID()}`).expect(404);
       expect(await patientLogs()).toEqual([]);
     });
 
@@ -658,7 +592,7 @@ describe('Patients (e2e)', () => {
     it("gives one patient's history, newest first, with who did it", async () => {
       await as('ADMIN').get(`${URL}/${maria}`).expect(200);
       await as('DENTIST').patch(`${URL}/${maria}`).send({ firstName: 'Mariel' }).expect(200);
-      await as('ADMIN').get(`${URL}/${bea}`).expect(404);
+      await as('ADMIN').get(`${URL}/${randomUUID()}`).expect(404);
 
       const response = await as('ADMIN').get(LOGS).query({ entityId: maria }).expect(200);
       expect(response.body.total).toBe(2);
@@ -671,16 +605,8 @@ describe('Patients (e2e)', () => {
       expect(oldest.action).toBe('PATIENT_VIEWED');
     });
 
-    it("never shows another clinic's log", async () => {
-      await as('ADMIN').get(`${URL}/${maria}`).expect(200);
-      const response = await as('ADMIN_B').get(LOGS).query({ entityId: maria }).expect(200);
-      expect(response.body.items).toEqual([]);
-      const all = await as('ADMIN_B').get(LOGS).expect(200);
-      expect(all.body.items.every((log: { action: string }) => log.action === 'LOGIN_SUCCEEDED')).toBe(true);
-    });
-
     it('rejects unknown filters', async () => {
-      await as('ADMIN').get(LOGS).query({ clinicId: clinicB }).expect(400);
+      await as('ADMIN').get(LOGS).query({ clinicId: randomUUID() }).expect(400);
       await as('ADMIN').get(LOGS).query({ action: 'NOT_AN_ACTION' }).expect(400);
     });
   });

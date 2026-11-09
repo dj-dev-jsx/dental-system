@@ -4,6 +4,7 @@ import { ErrorBox } from '../../components/ErrorBox'
 import { FormField } from '../../components/FormField'
 import { fieldAria, textareaClass } from '../../components/forms'
 import { errorMessage } from '../../lib/api'
+import { onlineErrorMessage } from '../patient-accounts/errors'
 import { manilaClock, manilaDate, minutesBetween } from '../../lib/format'
 import { DentistField, WhenFields } from './AppointmentFields'
 import { type FieldErrors, fieldErrorsFrom, hasPassed, readWhen } from './appointmentInput'
@@ -63,7 +64,7 @@ export function ConfirmPanel({ appointment, onConfirmed, onBack }: ConfirmProps)
     } catch (error) {
       const fields = fieldErrorsFrom(error)
       if (Object.keys(fields).length > 0) setErrors(fields)
-      else setFormError(errorMessage(error))
+      else setFormError(onlineErrorMessage(error))
     }
   }
 
@@ -138,6 +139,8 @@ export function ClosePanel({ appointment, action, onClosed, onBack }: CloseProps
   const close = useCloseAppointment()
   const text = CLOSE_TEXT[action]
   const noteId = `${action}-${appointment.id}-note`
+  // Someone who booked online is emailed the reason, and sees it when they sign in.
+  const hint = appointment.requester ? `${text.hint} The patient sees this reason: it’s in the email we send them and on their online booking page.` : text.hint
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -152,9 +155,9 @@ export function ClosePanel({ appointment, action, onClosed, onBack }: CloseProps
   return (
     <form noValidate onSubmit={handleSubmit} className="mt-4 border-t border-neutral-200 pt-4">
       <h3 className="font-semibold">{text.title}</h3>
-      {close.isError && <ErrorBox className="mt-3">{errorMessage(close.error)}</ErrorBox>}
-      <FormField id={noteId} label="Reason" hint={text.hint} className="mt-3 max-w-xl">
-        <textarea id={noteId} name="note" maxLength={500} className={`${textareaClass} min-h-20`} {...fieldAria(noteId, undefined, text.hint)} />
+      {close.isError && <ErrorBox className="mt-3">{onlineErrorMessage(close.error)}</ErrorBox>}
+      <FormField id={noteId} label="Reason" hint={hint} className="mt-3 max-w-xl">
+        <textarea id={noteId} name="note" maxLength={500} className={`${textareaClass} min-h-20`} {...fieldAria(noteId, undefined, hint)} />
       </FormField>
       <div className="mt-4 flex flex-wrap gap-3">
         <button type="submit" disabled={close.isPending} className={`${buttonOnLight} h-10 px-5 text-sm`}>

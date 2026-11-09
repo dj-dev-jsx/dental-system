@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { buttonOnLight, buttonOutline } from '../../components/buttons'
+import { buttonBlocked, buttonOnLight, buttonOutline } from '../../components/buttons'
 import { ErrorBox } from '../../components/ErrorBox'
 import { Page, PageHeader } from '../../components/Page'
 import { None, Pill } from '../../components/Table'
@@ -11,15 +11,16 @@ import {
   formatDayLong,
   formatDayShort,
   formatTimeRange,
-  fullName,
   manilaDate,
   minutesBetween,
 } from '../../lib/format'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
-import { ROLE_LABELS } from '../auth/authStore'
+import { actorName, actorRole } from '../audit/actor'
 import { ClosePanel, ConfirmPanel } from './AppointmentActions'
 import { hasPassed } from './appointmentInput'
 import { useAppointment, useAppointmentHistory } from './queries'
+import { NotLinkedPill, OnlinePill } from './RequesterPills'
+import { NOT_LINKED_REASON, patientPath, whoName, whoPhone } from './requester'
 import { type Appointment, type AppointmentStatus, type History, type HistoryEntry, STATUS_LABELS } from './types'
 import { waitedFor } from './waiting'
 
@@ -45,7 +46,7 @@ export default function AppointmentPage() {
   const { id = '' } = useParams()
   const { data: appointment, isPending, isError, error, refetch } = useAppointment(id)
   const [panel, setPanel] = useState<'confirm' | 'decline' | 'cancel' | null>(null)
-  useDocumentTitle(appointment ? `Appointment: ${fullName(appointment.patient)}` : 'Appointment')
+  useDocumentTitle(appointment ? `Appointment: ${whoName(appointment)}` : 'Appointment')
 
   if (isPending) {
     return (
@@ -76,6 +77,8 @@ export default function AppointmentPage() {
   const day = manilaDate(appointment.startsAt)
   const { status } = appointment
   const minutes = minutesBetween(appointment.startsAt, appointment.endsAt)
+  const record = patientPath(appointment)
+  const unlinked = appointment.patient === null
 
   return (
     <Page narrow>
@@ -83,10 +86,16 @@ export default function AppointmentPage() {
         back={{ to: `/app/appointments?date=${day}`, label: `Schedule, ${formatDayShort(day)}` }}
         title={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <Link to={`/app/patients/${appointment.patient.id}`} className="hover:underline hover:underline-offset-4">
-              {fullName(appointment.patient)}
-            </Link>
+            {record ? (
+              <Link to={record} className="hover:underline hover:underline-offset-4">
+                {whoName(appointment)}
+              </Link>
+            ) : (
+              whoName(appointment)
+            )}
             <Pill tone={STATUS_TONE[status]}>{STATUS_LABELS[status]}</Pill>
+            {appointment.source === 'ONLINE' && <OnlinePill />}
+            {unlinked && <NotLinkedPill />}
           </span>
         }
         description={
@@ -102,12 +111,26 @@ export default function AppointmentPage() {
           <div className="mt-5 flex flex-wrap gap-3">
             {status === 'REQUESTED' ? (
               <>
-                <button type="button" onClick={() => setPanel('confirm')} className={`${buttonOnLight} h-10 px-5 text-sm`}>
-                  Confirm…
-                </button>
+                {unlinked ? (
+                  <button type="button" aria-disabled="true" aria-describedby="appt-not-linked" className={`${buttonBlocked} h-10 px-5 text-sm`}>
+                    Confirm…
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => setPanel('confirm')} className={`${buttonOnLight} h-10 px-5 text-sm`}>
+                    Confirm…
+                  </button>
+                )}
                 <button type="button" onClick={() => setPanel('decline')} className={`${buttonOutline} h-10 px-4 text-sm`}>
                   Decline…
                 </button>
+                {unlinked && (
+                  <p id="appt-not-linked" className="basis-full text-sm text-neutral-600">
+                    {NOT_LINKED_REASON}{' '}
+                    <Link to={`/app/requests/${appointment.id}`} className="font-semibold text-neutral-950 underline underline-offset-3 hover:no-underline">
+                      Say who this is
+                    </Link>
+                  </p>
+                )}
               </>
             ) : (
               <>
@@ -153,14 +176,23 @@ export default function AppointmentPage() {
           Details
         </h2>
         <dl className="mt-3 grid gap-x-8 border-t border-neutral-950 sm:grid-cols-2">
-          <Fact label="Phone">{appointment.patient.phone}</Fact>
+          <Fact label="Phone">{whoPhone(appointment)}</Fact>
           <Fact label="Length">{minutesLabel(minutes)}</Fact>
           <Fact label="Reason" wide>
             {appointment.reason && <span className="whitespace-pre-line">{appointment.reason}</span>}
           </Fact>
           <Fact label="Booked">{formatDateTime(appointment.createdAt)}</Fact>
           <Fact label="Last changed">{formatDateTime(appointment.updatedAt)}</Fact>
-          {appointment.patient.archivedAt && <Fact label="Patient">Archived</Fact>}
+          {appointment.patient?.archivedAt && <Fact label="Patient">Archived</Fact>}
+          {appointment.requester && (
+            <Fact label="Booked online by" wide>
+              {appointment.requester.firstName} {appointment.requester.lastName} · <span className="tabular-nums">{appointment.requester.phone}</span> ·{' '}
+              <span className="break-all">{appointment.requester.email}</span>
+              <span className="block text-sm text-neutral-500">
+                {appointment.requester.linked ? 'Their online account is linked to this patient’s record.' : 'As they gave it online. Not linked to a patient record yet.'}
+              </span>
+            </Fact>
+          )}
         </dl>
       </section>
 
@@ -182,7 +214,7 @@ function Fact({ label, children, wide = false }: { label: string; children?: Rea
 
 type Line = { key: string; title: string; detail?: string; who?: string; at: string }
 
-const person = (actor: HistoryEntry['actor']) => `${actor.firstName} ${actor.lastName} (${ROLE_LABELS[actor.role]})`
+const person = (actor: HistoryEntry['actor']) => `${actorName(actor)} (${actorRole(actor)})`
 
 function describe(entry: HistoryEntry, dentists: History['dentists']): Pick<Line, 'title' | 'detail'> {
   const meta = entry.metadata
@@ -211,6 +243,11 @@ function describe(entry: HistoryEntry, dentists: History['dentists']): Pick<Line
         title: 'Booked by staff',
         detail: meta?.startsAt && meta.endsAt ? `${formatDayShort(manilaDate(meta.startsAt))}, ${formatTimeRange(meta.startsAt, meta.endsAt)} with ${dentist(meta.dentistId)}` : undefined,
       }
+    case 'APPOINTMENT_REQUESTED_ONLINE':
+      return {
+        title: 'Requested online',
+        detail: meta?.startsAt && meta.endsAt ? `${formatDayShort(manilaDate(meta.startsAt))}, ${formatTimeRange(meta.startsAt, meta.endsAt)} with ${meta.dentistId ? dentist(meta.dentistId) : 'any dentist'}` : undefined,
+      }
     case 'APPOINTMENT_UPDATED':
       return { title: 'Changed', detail: parts.join('. ') || undefined }
     case 'APPOINTMENT_CONFIRMED':
@@ -219,6 +256,8 @@ function describe(entry: HistoryEntry, dentists: History['dentists']): Pick<Line
       return { title: 'Declined', detail: note ?? undefined }
     case 'APPOINTMENT_CANCELLED':
       return { title: 'Cancelled', detail: note ?? undefined }
+    case 'APPOINTMENT_CANCELLED_BY_PATIENT':
+      return { title: 'Cancelled by the patient online', detail: note ?? undefined }
   }
 }
 
@@ -228,7 +267,8 @@ function Timeline({ appointment }: { appointment: Appointment }) {
   const lines: Line[] = []
   if (history.data) {
     // Requests made online have no "booked" line of their own, so the first line says it arrived.
-    if (history.data.items[0]?.action !== 'APPOINTMENT_CREATED') {
+    const first = history.data.items[0]?.action
+    if (first !== 'APPOINTMENT_CREATED' && first !== 'APPOINTMENT_REQUESTED_ONLINE') {
       const asked = appointment.status === 'REQUESTED' || appointment.status === 'DECLINED' || history.data.items.some((e) => e.action === 'APPOINTMENT_CONFIRMED')
       lines.push({ key: 'requested', title: asked ? 'Requested by the patient' : 'Created', at: appointment.createdAt })
     }

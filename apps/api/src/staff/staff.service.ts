@@ -47,8 +47,6 @@ function isUniqueViolation(error: unknown) {
   );
 }
 
-// The users table has NO row-level security, so the clinicId in every where below is the
-// only thing stopping an admin from touching another clinic's staff.
 @Injectable()
 export class StaffService {
   constructor(private readonly prisma: PrismaService) {}
@@ -56,7 +54,6 @@ export class StaffService {
   async list(user: AuthenticatedUser, query: ListStaffQuery) {
     const search = query.search?.trim();
     const where: Prisma.UserWhereInput = {
-      clinicId: user.clinicId,
       ...(query.status !== 'all' && { isActive: query.status === 'active' }),
       ...(query.role && { role: query.role }),
       ...(search && {
@@ -67,13 +64,12 @@ export class StaffService {
         ],
       }),
     };
-    const { rows, lastByUser } = await this.prisma.forClinic(user.clinicId, async (tx) => {
+    const { rows, lastByUser } = await this.prisma.$transaction(async (tx) => {
       const found = await tx.user.findMany({ where, select: STAFF_FIELDS });
       // One grouped query for everyone's latest sign-in, not one query per person.
       const latest = await tx.auditLog.groupBy({
         by: ['actorUserId'],
         where: {
-          clinicId: user.clinicId,
           action: 'LOGIN_SUCCEEDED',
           actorUserId: { in: found.map((row) => row.id) },
         },
@@ -117,13 +113,13 @@ export class StaffService {
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
     try {
-      const created = await this.prisma.forClinic(user.clinicId, async (tx) => {
+      const created = await this.prisma.$transaction(async (tx) => {
         // Friendly check first; the unique index still catches two simultaneous requests.
         if (await tx.user.findUnique({ where: { email: input.email }, select: { id: true } })) {
           throw new ConflictException(EMAIL_TAKEN);
         }
         const row = await tx.user.create({
-          data: { ...input, clinicId: user.clinicId, passwordHash, mustChangePassword: true },
+          data: { ...input, passwordHash, mustChangePassword: true },
           select: STAFF_FIELDS,
         });
         // Never put the password in the log, only which role they got.
@@ -143,19 +139,19 @@ export class StaffService {
 
   update(user: AuthenticatedUser, id: string, input: UpdateStaffInput) {
     const touchesAccess = input.role !== undefined || input.isActive !== undefined;
-    return this.prisma.forClinic(user.clinicId, async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       if (touchesAccess) {
-        // Locks this clinic's active admin rows until the transaction ends (like MySQL's
+        // Locks the active admin rows until the transaction ends (like MySQL's
         // SELECT ... FOR UPDATE). A second admin change waits here, then counts the
         // admins again including the first one's result, so two demotions can't both pass.
         await tx.$queryRaw`
           SELECT id FROM users
-          WHERE clinic_id = ${user.clinicId}::uuid AND role = 'ADMIN' AND is_active
+          WHERE role = 'ADMIN' AND is_active
           FOR UPDATE`;
       }
 
       const current = await tx.user.findFirst({
-        where: { id, clinicId: user.clinicId },
+        where: { id },
         select: STAFF_FIELDS,
       });
       if (!current) throw new NotFoundException('Staff member not found');
@@ -170,7 +166,7 @@ export class StaffService {
       }
       if (current.role === 'ADMIN' && current.isActive && (newRole !== 'ADMIN' || !newActive)) {
         const admins = await tx.user.count({
-          where: { clinicId: user.clinicId, role: 'ADMIN', isActive: true },
+          where: { role: 'ADMIN', isActive: true },
         });
         if (admins <= 1) {
           throw new ConflictException('The clinic must keep at least one active admin.');
@@ -206,10 +202,10 @@ export class StaffService {
     }
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
-    await this.prisma.forClinic(user.clinicId, async (tx) => {
-      // updateMany with the clinic filter: 0 rows means not found (or another clinic's).
+    await this.prisma.$transaction(async (tx) => {
+      // updateMany: 0 rows means not found.
       const { count } = await tx.user.updateMany({
-        where: { id, clinicId: user.clinicId },
+        where: { id },
         data: { passwordHash, mustChangePassword: true, failedLogins: 0, lockedUntil: null },
       });
       if (count === 0) throw new NotFoundException('Staff member not found');
@@ -220,15 +216,15 @@ export class StaffService {
   }
 
   unlock(user: AuthenticatedUser, id: string) {
-    return this.prisma.forClinic(user.clinicId, async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const { count } = await tx.user.updateMany({
-        where: { id, clinicId: user.clinicId },
+        where: { id },
         data: { failedLogins: 0, lockedUntil: null },
       });
       if (count === 0) throw new NotFoundException('Staff member not found');
       await recordAudit(tx, user, 'STAFF_UNLOCKED', { entityId: id });
       return tx.user.findFirstOrThrow({
-        where: { id, clinicId: user.clinicId },
+        where: { id },
         select: STAFF_FIELDS,
       });
     });

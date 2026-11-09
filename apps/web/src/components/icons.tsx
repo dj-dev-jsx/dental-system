@@ -193,3 +193,10 @@ export const SignOutIcon = (props: IconProps) => (
     <path d="M12.5 6.5 16 10l-3.5 3.5M16 10H8" />
   </Icon>
 )
+
+/** Opens somewhere else, such as a page in a new tab: an arrow out of a box. */
+export const ExternalIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M11.5 3.5h5v5M16.5 3.5 9.5 10.5M14.5 11.5v4a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h4" />
+  </Icon>
+)

@@ -1,4 +1,4 @@
-// The clinics are in the Philippines, so days and clock times mean Philippine time, whatever
+// The clinic is in the Philippines, so days and clock times mean Philippine time, whatever
 // time zone the server runs in (usually UTC). The Philippines has no daylight saving time,
 // so it is always 8 hours ahead of UTC.
 const MANILA_OFFSET = '+08:00';
@@ -33,4 +33,22 @@ const TIME = new Intl.DateTimeFormat('en-PH', {
 /** "9:30 AM", Philippine time, for messages people read. */
 export function manilaTime(moment: Date) {
   return TIME.format(moment);
+}
+
+const DATE = new Intl.DateTimeFormat('en-PH', {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'Asia/Manila',
+});
+
+/** "Tuesday, 10 November 2026", Philippine time, for messages people read. */
+export function manilaDate(moment: Date) {
+  return DATE.format(moment);
+}
+
+/** Minutes after midnight, Philippine time (9:30 AM is 570). */
+export function manilaMinuteOfDay(moment: Date) {
+  return Math.round((moment.getTime() - startOfManilaDay(todayInManila(moment)).getTime()) / 60_000);
 }

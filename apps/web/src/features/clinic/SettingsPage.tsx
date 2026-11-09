@@ -1,9 +1,9 @@
-import { type InputHTMLAttributes, type ReactNode, useEffect, useRef, useState } from 'react'
+import { type InputHTMLAttributes, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { buttonOnLight, buttonOutline } from '../../components/buttons'
 import { ErrorBox } from '../../components/ErrorBox'
 import { FormField } from '../../components/FormField'
 import { fieldAria, inputClass, inputErrorClass } from '../../components/forms'
-import { CheckIcon } from '../../components/icons'
+import { CheckIcon, CopyIcon, ExternalIcon } from '../../components/icons'
 import { Page, PageHeader } from '../../components/Page'
 import { ApiError, errorMessage } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
@@ -13,7 +13,7 @@ import { useClinic, useUpdateClinic } from './queries'
 import type { Clinic, ClinicInput } from './types'
 import { useLeaveGuard } from './useLeaveGuard'
 
-type Field = 'name' | 'address' | 'phone' | 'email' | 'opensAt' | 'closesAt' | 'defaultVisitMinutes'
+type Field = 'name' | 'address' | 'phone' | 'email' | 'opensAt' | 'closesAt' | 'defaultVisitMinutes' | 'onlineBookingEnabled'
 type FieldErrors = Partial<Record<Field, string>>
 
 // What to say under a field the server refused (its own wording is technical).
@@ -25,7 +25,11 @@ const FIELD_MESSAGES: Record<Field, string> = {
   opensAt: 'Choose an opening time on a quarter hour, like 8:00 AM.',
   closesAt: 'Choose a closing time on a quarter hour, after the opening time.',
   defaultVisitMinutes: 'Choose a length between 5 minutes and 8 hours.',
+  onlineBookingEnabled: 'Choose whether online booking is on.',
 }
+
+/** The patients' booking page. */
+const bookingUrl = () => `${window.location.origin}/book`
 
 /** The API answers a bad form with messages like "opensAt: must be a multiple of 15". */
 function fieldErrorsFrom(error: unknown): FieldErrors {
@@ -137,7 +141,7 @@ export default function SettingsPage() {
 }
 
 /** What the boxes hold right now, all as text, so they can be compared with what is saved. */
-type Draft = { name: string; address: string; phone: string; email: string; opensAt: string; closesAt: string; visit: number }
+type Draft = { name: string; address: string; phone: string; email: string; opensAt: string; closesAt: string; visit: number; online: boolean }
 
 const draftOf = (clinic: Clinic): Draft => ({
   name: clinic.name,
@@ -147,6 +151,7 @@ const draftOf = (clinic: Clinic): Draft => ({
   opensAt: clockOf(clinic.opensAt),
   closesAt: clockOf(clinic.closesAt),
   visit: clinic.defaultVisitMinutes,
+  online: clinic.onlineBookingEnabled,
 })
 
 function SettingsForm({ clinic }: { clinic: Clinic }) {
@@ -169,9 +174,10 @@ function SettingsForm({ clinic }: { clinic: Clinic }) {
   function set<K extends keyof Draft>(key: K, value: Draft[K]) {
     setDraft((current) => ({ ...current, [key]: value }))
     setSaved(false)
-    setErrors((current) => ({ ...current, [key === 'visit' ? 'defaultVisitMinutes' : key]: undefined }))
+    const field = key === 'visit' ? 'defaultVisitMinutes' : key === 'online' ? 'onlineBookingEnabled' : key
+    setErrors((current) => ({ ...current, [field]: undefined }))
   }
-  const bind = (key: Exclude<keyof Draft, 'visit'>) => ({
+  const bind = (key: Exclude<keyof Draft, 'visit' | 'online'>) => ({
     value: draft[key],
     onChange: (event: { target: { value: string } }) => set(key, event.target.value),
   })
@@ -212,6 +218,7 @@ function SettingsForm({ clinic }: { clinic: Clinic }) {
     if (opensAt !== clinic.opensAt) changes.opensAt = opensAt!
     if (closesAt !== clinic.closesAt) changes.closesAt = closesAt!
     if (draft.visit !== clinic.defaultVisitMinutes) changes.defaultVisitMinutes = draft.visit
+    if (draft.online !== clinic.onlineBookingEnabled) changes.onlineBookingEnabled = draft.online
     if (Object.keys(changes).length === 0) return
 
     try {
@@ -288,6 +295,8 @@ function SettingsForm({ clinic }: { clinic: Clinic }) {
         </div>
       </Section>
 
+      <OnlineBookingSection clinic={clinic} draft={draft} error={errors.onlineBookingEnabled} onOnline={(value) => set('online', value)} />
+
       <div className="-mt-4 flex min-h-5 items-center gap-x-6 text-sm text-neutral-600">
         <p role="status" aria-live="polite" className="flex items-center gap-2 font-medium text-neutral-950">
           {saved && !dirty && (
@@ -328,5 +337,84 @@ function SettingsForm({ clinic }: { clinic: Clinic }) {
         </div>
       )}
     </form>
+  )
+}
+
+type OnlineProps = {
+  clinic: Clinic
+  draft: Draft
+  error?: string
+  onOnline: (value: boolean) => void
+}
+
+/**
+ * Whether patients can book online, and the link to the booking page to share with them.
+ */
+function OnlineBookingSection({ clinic, draft, error, onOnline }: OnlineProps) {
+  const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const statusId = useId()
+  const url = bookingUrl()
+
+  async function handleCopy(url: string) {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopy('copied')
+    } catch {
+      // Clipboard access can be blocked (for example on an unsecured address).
+      setCopy('failed')
+    }
+  }
+
+  return (
+    <Section title="Online booking" description="Patients ask for appointments on the clinic’s own booking page, and make an account as they book. Every request waits in Requests until staff confirm it.">
+      <div className="flex flex-col gap-1.5 sm:col-span-2">
+        <span id="online-label" className="text-sm font-semibold">
+          Booking page
+        </span>
+        <div role="radiogroup" aria-labelledby="online-label" aria-describedby="online-hint" className="flex flex-wrap gap-2">
+          {[
+            { value: false, label: 'Off' },
+            { value: true, label: 'On' },
+          ].map((option) => (
+            <button
+              key={option.label}
+              type="button"
+              role="radio"
+              aria-checked={draft.online === option.value}
+              onClick={() => onOnline(option.value)}
+              className="h-10 min-w-16 rounded-md border border-neutral-300 px-3.5 text-sm font-semibold text-neutral-800 outline-neutral-950 hover:border-neutral-950 focus-visible:outline-2 focus-visible:outline-offset-2 aria-checked:border-neutral-950 aria-checked:bg-neutral-950 aria-checked:text-white"
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <p id="online-hint" className="text-sm text-neutral-600">
+          {draft.online ? 'Patients can ask for appointments online. Staff still confirm, move or decline each one.' : 'Nobody can book online. The booking page isn’t available.'}
+        </p>
+      </div>
+
+      <div className="border-t border-neutral-200 pt-4 sm:col-span-2" aria-live="polite">
+        <p className="text-sm font-semibold">
+          {clinic.onlineBookingEnabled ? 'The clinic’s booking page' : 'The clinic’s booking page, switched off'}
+        </p>
+        <p className="mt-1 font-medium break-all">{url}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={() => void handleCopy(url)} aria-describedby={statusId} className={`${buttonOutline} h-9 px-3.5 text-sm`}>
+            {copy === 'copied' ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
+            {copy === 'copied' ? 'Copied' : 'Copy link'}
+          </button>
+          <a href={url} target="_blank" rel="noopener" className={`${buttonOutline} h-9 px-3.5 text-sm`}>
+            <ExternalIcon className="size-4" /> Open page
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        </div>
+        <p id={statusId} role="status" className="mt-2 min-h-5 text-sm text-neutral-600">
+          {copy === 'copied' && 'Copied. Put it on the clinic’s social media page or in messages to patients.'}
+          {copy === 'failed' && 'Couldn’t copy. Select the address and copy it yourself.'}
+          {copy === 'idle' && !clinic.onlineBookingEnabled && 'Switch booking on and save before sharing it.'}
+        </p>
+        {error && <p className="mt-1 text-sm font-medium">{error}</p>}
+      </div>
+    </Section>
   )
 }

@@ -5,11 +5,12 @@ import { ErrorBox } from '../../../components/ErrorBox'
 import { compactInputClass } from '../../../components/forms'
 import { AlertIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon } from '../../../components/icons'
 import { ApiError, errorMessage } from '../../../lib/api'
-import { dentistName, formatDayLong, formatDayShort, formatTimeRange, fullName, isDate, manilaDate, manilaMoment, todayInManila } from '../../../lib/format'
+import { dentistName, formatDayLong, formatDayShort, formatTimeRange, isDate, manilaDate, manilaMoment, todayInManila } from '../../../lib/format'
 import { useDocumentTitle } from '../../../lib/useDocumentTitle'
 import { useStaffUser } from '../../auth/authStore'
 import { useClinic } from '../../clinic/queries'
 import { useDentists, useSchedule, useUpdateAppointment } from '../queries'
+import { whoName } from '../requester'
 import type { Appointment, AppointmentChanges, Dentist } from '../types'
 import { CalendarPanel, type Selection } from './CalendarPanel'
 import { clockOf, DEFAULT_END_HOUR, DEFAULT_START_HOUR, daysOf, gridHours, step, type View } from './calendarMath'
@@ -163,7 +164,7 @@ export default function CalendarPage() {
       refreshSelection(moved)
       const withWhom = changes.dentistId !== undefined && moved.dentist ? ` with ${dentistName(moved.dentist)}` : ''
       setNotice({
-        text: `Moved ${fullName(moved.patient)} to ${formatDayShort(manilaDate(moved.startsAt))}, ${formatTimeRange(moved.startsAt, moved.endsAt)}${withWhom}.`,
+        text: `Moved ${whoName(moved)} to ${formatDayShort(manilaDate(moved.startsAt))}, ${formatTimeRange(moved.startsAt, moved.endsAt)}${withWhom}.`,
         undo: () => void undo(appointment, before),
       })
     } catch (error) {
@@ -175,7 +176,7 @@ export default function CalendarPage() {
     setNotice(null)
     try {
       refreshSelection(await updateAppointment.mutateAsync({ id: appointment.id, ...before }))
-      setNotice({ text: `Moved ${fullName(appointment.patient)} back.` })
+      setNotice({ text: `Moved ${whoName(appointment)} back.` })
     } catch (error) {
       setNotice({ text: moveError(error), error: true })
     }

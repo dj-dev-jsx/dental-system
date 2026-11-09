@@ -1,15 +1,18 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router'
 import { LoadErrorBoundary } from './components/LoadErrorBoundary'
 import { StaffUserContext, useAuthStore } from './features/auth/authStore'
 import { ChangePasswordScreen } from './features/auth/ChangePasswordScreen'
 import { LoginScreen } from './features/auth/LoginScreen'
 import { UnreachableScreen } from './features/auth/UnreachableScreen'
-import LandingPage from './pages/LandingPage'
+import HomePage from './pages/HomePage'
 
 // The staff area is only downloaded by people who sign in, so the public pages stay light.
 const loadStaffApp = () => import('./staff/StaffApp')
 const StaffApp = lazy(loadStaffApp)
+
+// The patient pages (online booking), also downloaded only when visited.
+const PortalApp = lazy(() => import('./portal/PortalApp'))
 
 function Loading() {
   return (
@@ -19,9 +22,18 @@ function Loading() {
   )
 }
 
+/** The old /clinic/<name>/... addresses, from emails sent before: the same page at the root. */
+function OldClinicAddress() {
+  const rest = useParams()['*'] ?? ''
+  const { search, state } = useLocation()
+  return <Navigate to={`/${rest}${search}`} replace state={state} />
+}
+
 /** /sign-in: the form, or straight on to the app if already signed in. */
 function SignInRoute() {
   const state = useAuthStore((store) => store.state)
+  // A notice passed along by the patient pages, like "Sign in to see your appointments".
+  const passed = (useLocation().state as { notice?: string } | null)?.notice
 
   // While someone types their password, download the staff area in the background, so it's
   // ready by the time they're signed in, even on a slow connection.
@@ -39,7 +51,7 @@ function SignInRoute() {
     case 'signedIn':
       return <Navigate to="/app" replace />
     case 'signedOut':
-      return <LoginScreen notice={state.notice} />
+      return <LoginScreen notice={state.notice ?? passed} />
   }
 }
 
@@ -79,11 +91,23 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route path="/" element={<HomePage />} />
         <Route path="/sign-in" element={<SignInRoute />} />
         {/* The * lets the staff area handle /app/patients and the rest itself. */}
         <Route path="/app/*" element={<StaffRoute />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/clinic/:old/*" element={<OldClinicAddress />} />
+        {/* Patients: /book, /verify, /appointments and the rest, never the staff session. Any other
+            address lands on the home page from in there. */}
+        <Route
+          path="/*"
+          element={
+            <LoadErrorBoundary>
+              <Suspense fallback={<Loading />}>
+                <PortalApp />
+              </Suspense>
+            </LoadErrorBoundary>
+          }
+        />
       </Routes>
     </BrowserRouter>
   )

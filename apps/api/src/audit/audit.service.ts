@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { addDays, startOfManilaDay } from '../common/manila.js';
-import { AuditAction } from '../generated/prisma/client.js';
+import { AuditAction, type UserRole } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const date = z.iso.date();
@@ -51,14 +51,25 @@ const PATIENT_ACTIONS = new Set<AuditAction>([
   'CHART_VIEWED',
   'TOOTH_RECORDED',
   'TOOTH_CORRECTED',
+  // Linking is logged against the patient record, so it shows in that patient's history.
+  'PATIENT_ACCOUNT_LINKED',
+  'PATIENT_ACCOUNT_UNLINKED',
 ]);
 const APPOINTMENT_ACTIONS = new Set<AuditAction>([
   'APPOINTMENT_CREATED',
+  'APPOINTMENT_REQUESTED_ONLINE',
   'APPOINTMENT_VIEWED',
   'APPOINTMENT_UPDATED',
   'APPOINTMENT_CONFIRMED',
   'APPOINTMENT_DECLINED',
   'APPOINTMENT_CANCELLED',
+  'APPOINTMENT_CANCELLED_BY_PATIENT',
+]);
+/** Lines about a patient's online account itself (logins name no record, like staff logins). */
+const ACCOUNT_ACTIONS = new Set<AuditAction>([
+  'PATIENT_ACCOUNT_REGISTERED',
+  'PATIENT_EMAIL_VERIFIED',
+  'PATIENT_PASSWORD_RESET',
 ]);
 const STAFF_ACTIONS = new Set<AuditAction>([
   'STAFF_CREATED',
@@ -71,10 +82,26 @@ const STAFF_ACTIONS = new Set<AuditAction>([
 export type AuditSubject =
   | { kind: 'patient'; id: string; name: string }
   | { kind: 'staff'; id: string; name: string }
+  | { kind: 'patientAccount'; id: string; name: string }
   | { kind: 'appointment'; id: string; name: string; startsAt: Date };
 
-type Named = { firstName: string; middleName: string | null; lastName: string; suffix: string | null };
+type Named = { firstName: string; middleName?: string | null; lastName: string; suffix?: string | null };
 const fullName = (p: Named) => [p.firstName, p.middleName, p.lastName, p.suffix].filter(Boolean).join(' ');
+
+/** Who did it: a staff member, or a patient through online booking. */
+export type AuditActor =
+  | { kind: 'staff'; id: string; firstName: string; lastName: string; role: UserRole }
+  | { kind: 'patient'; id: string; firstName: string; lastName: string; role: 'PATIENT' };
+
+/** Builds the actor from a line's two possible actors (the database guarantees exactly one). */
+export function auditActor(
+  staff: { id: string; firstName: string; lastName: string; role: UserRole } | null,
+  patient: { id: string; firstName: string; lastName: string } | null,
+): AuditActor | null {
+  if (staff) return { kind: 'staff', ...staff };
+  if (patient) return { kind: 'patient', ...patient, role: 'PATIENT' };
+  return null;
+}
 
 @Injectable()
 export class AuditService {
@@ -82,7 +109,7 @@ export class AuditService {
 
   list(user: AuthenticatedUser, query: ListAuditLogsQuery) {
     const { page, limit, actions, from, to, excludeRoutine, action, ...filters } = query;
-    return this.prisma.forClinic(user.clinicId, async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       // Prisma ignores filters left undefined, so each one only applies when it was sent.
       let allowed: AuditAction[] | undefined = actions;
       if (action) allowed = allowed ? allowed.filter((a) => a === action) : [action];
@@ -90,7 +117,6 @@ export class AuditService {
         allowed = (allowed ?? Object.values(AuditAction)).filter((a) => !ROUTINE.includes(a));
       }
       const where = {
-        clinicId: user.clinicId,
         ...filters,
         action: allowed ? { in: allowed } : undefined,
         createdAt:
@@ -111,6 +137,7 @@ export class AuditService {
           metadata: true,
           createdAt: true,
           actor: { select: { id: true, firstName: true, lastName: true, role: true } },
+          actorPatientAccount: { select: { id: true, firstName: true, lastName: true } },
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], // newest first
         skip: (page - 1) * limit,
@@ -125,32 +152,45 @@ export class AuditService {
       const patientIds = idsFor(PATIENT_ACTIONS);
       const appointmentIds = idsFor(APPOINTMENT_ACTIONS);
       const staffIds = idsFor(STAFF_ACTIONS);
+      const accountIds = idsFor(ACCOUNT_ACTIONS);
 
       const patients = new Map<string, string>();
       const appointments = new Map<string, { name: string; startsAt: Date }>();
       const staff = new Map<string, string>();
+      const accounts = new Map<string, string>();
+      if (accountIds.length > 0) {
+        const found = await tx.patientAccount.findMany({
+          where: { id: { in: accountIds } },
+          select: { id: true, firstName: true, lastName: true },
+        });
+        for (const a of found) accounts.set(a.id, fullName(a));
+      }
       if (patientIds.length > 0) {
         const found = await tx.patient.findMany({
-          where: { clinicId: user.clinicId, id: { in: patientIds } },
+          where: { id: { in: patientIds } },
           select: { id: true, firstName: true, middleName: true, lastName: true, suffix: true },
         });
         for (const p of found) patients.set(p.id, fullName(p));
       }
       if (appointmentIds.length > 0) {
         const found = await tx.appointment.findMany({
-          where: { clinicId: user.clinicId, id: { in: appointmentIds } },
+          where: { id: { in: appointmentIds } },
           select: {
             id: true,
             startsAt: true,
             patient: { select: { firstName: true, middleName: true, lastName: true, suffix: true } },
+            // An online request not yet linked to a patient is named after whoever asked.
+            patientAccount: { select: { firstName: true, lastName: true } },
           },
         });
-        for (const a of found) appointments.set(a.id, { name: fullName(a.patient), startsAt: a.startsAt });
+        for (const a of found) {
+          const who = a.patient ?? a.patientAccount;
+          appointments.set(a.id, { name: who ? fullName(who) : '', startsAt: a.startsAt });
+        }
       }
       if (staffIds.length > 0) {
-        // Users have no row-level security, so the clinic filter here is the only lock.
         const found = await tx.user.findMany({
-          where: { clinicId: user.clinicId, id: { in: staffIds } },
+          where: { id: { in: staffIds } },
           select: { id: true, firstName: true, lastName: true },
         });
         for (const s of found) staff.set(s.id, `${s.firstName} ${s.lastName}`);
@@ -167,8 +207,15 @@ export class AuditService {
           const found = appointments.get(id);
           return found ? { kind: 'appointment', id, ...found } : null;
         }
-        const name = staff.get(id);
-        return name ? { kind: 'staff', id, name } : null;
+        if (ACCOUNT_ACTIONS.has(row.action)) {
+          const name = accounts.get(id);
+          return name ? { kind: 'patientAccount', id, name } : null;
+        }
+        if (STAFF_ACTIONS.has(row.action)) {
+          const name = staff.get(id);
+          return name ? { kind: 'staff', id, name } : null;
+        }
+        return null;
       };
 
       // A record opened again within a minute by the same person counts once: the first one.
@@ -179,7 +226,6 @@ export class AuditService {
           const oldest = Math.min(...views.map((r) => r.createdAt.getTime())) - REPEAT_WINDOW_MS;
           const earlier = await tx.auditLog.findMany({
             where: {
-              clinicId: user.clinicId,
               action: { in: REPEATABLE },
               entityId: { in: [...new Set(views.map((r) => r.entityId as string))] },
               createdAt: { gte: new Date(oldest) },
@@ -206,7 +252,11 @@ export class AuditService {
 
       const items = rows
         .filter((r) => !drop.has(r.id))
-        .map(({ actorUserId: _actor, ...row }) => ({ ...row, subject: subjectOf(row) }));
+        .map(({ actorUserId: _actor, actor, actorPatientAccount, ...row }) => ({
+          ...row,
+          actor: auditActor(actor, actorPatientAccount),
+          subject: subjectOf(row),
+        }));
       // total counts every line that matches, including repeats hidden from this page.
       return { items, total, page, limit };
     });

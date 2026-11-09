@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useLocation } from 'react-router'
 import { buttonOnLight } from '../components/buttons'
-import { ArrowLeftIcon, CloseIcon, MenuIcon, PlusIcon, SearchIcon } from '../components/icons'
+import { ArrowLeftIcon, CloseIcon, MenuIcon, PlusIcon, SearchIcon, SignOutIcon } from '../components/icons'
 import { useRequestCount } from '../features/appointments/queries'
 import { useStaffUser } from '../features/auth/authStore'
 import { GlobalSearch } from './GlobalSearch'
-import { Sidebar } from './Sidebar'
+import { Sidebar, useSignOut } from './Sidebar'
 
 const WIDE = '(min-width: 1024px)'
 
@@ -39,6 +39,26 @@ function useSlashShortcut(onSlash: () => void) {
 
 const iconButton = 'relative grid size-10 shrink-0 place-items-center rounded-md text-neutral-700 outline-neutral-950 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-950 focus-visible:outline-2'
 
+/** Sign out, always in reach in the top bar (the sidebar has one too, but on phones it's in the menu). */
+function SignOutButton({ compact }: { compact?: boolean }) {
+  const { signingOut, error, signOut } = useSignOut()
+  const label = signingOut ? 'Signing out…' : error ? 'Couldn’t sign out. Try again' : 'Sign out'
+  return compact ? (
+    <button type="button" onClick={signOut} disabled={signingOut} aria-label={label} title={label} className={iconButton}>
+      <SignOutIcon />
+    </button>
+  ) : (
+    <button
+      type="button"
+      onClick={signOut}
+      disabled={signingOut}
+      className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-neutral-300 px-3.5 text-sm font-semibold outline-neutral-950 transition-colors duration-150 hover:border-neutral-950 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-wait"
+    >
+      <SignOutIcon className="size-4" /> {label}
+    </button>
+  )
+}
+
 /**
  * Across the top of the work area: find a patient, and book. On phones it also carries the
  * menu button, and the search folds into an icon until it's needed.
@@ -57,10 +77,11 @@ export function TopBar() {
         <div className="w-full max-w-xl">
           <GlobalSearch inputRef={input} />
         </div>
-        <p className="ml-auto min-w-0 truncate text-sm text-neutral-500">{user.clinicName}</p>
+        <span className="ml-auto" aria-hidden="true" />
         <Link to="/app/appointments/new" className={`${buttonOnLight} h-9 shrink-0 px-4 text-sm`}>
           <PlusIcon className="size-4" /> Book appointment
         </Link>
+        <SignOutButton />
       </header>
     )
   }
@@ -86,6 +107,7 @@ export function TopBar() {
           <Link to="/app/appointments/new" aria-label="Book appointment" className={`${iconButton} bg-neutral-950 text-white hover:bg-neutral-800 hover:text-white`}>
             <PlusIcon />
           </Link>
+          <SignOutButton compact />
         </>
       )}
     </header>

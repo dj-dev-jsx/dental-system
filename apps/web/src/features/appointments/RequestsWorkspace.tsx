@@ -7,9 +7,11 @@ import { Segmented } from '../../components/Segmented'
 import { DetailEmpty, SplitView } from '../../components/SplitView'
 import { Pill } from '../../components/Table'
 import { errorMessage } from '../../lib/api'
-import { addDays, dentistName, formatDayShort, formatTimeRange, fullName, manilaDate, todayInManila } from '../../lib/format'
+import { addDays, dentistName, formatDayShort, formatTimeRange, manilaDate, todayInManila } from '../../lib/format'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
 import { useDeclinedRequests, useRequests } from './queries'
+import { NotLinkedPill, OnlinePill } from './RequesterPills'
+import { whoName } from './requester'
 import type { Appointment } from './types'
 import { overdueReason, queueOrder, waitingFor } from './waiting'
 
@@ -301,7 +303,7 @@ export function DoneNotice({ done, onDismiss }: { done: Done; onDismiss: () => v
     <div role="status" className="flex items-start gap-3 rounded-md bg-neutral-100 px-4 py-3 text-sm/6">
       <p className="min-w-0 flex-1">
         <span className="font-semibold">
-          {action === 'confirmed' ? 'Confirmed' : 'Declined'}: {fullName(appointment.patient)}
+          {action === 'confirmed' ? 'Confirmed' : 'Declined'}: {whoName(appointment)}
         </span>
         {action === 'confirmed' && (
           <>
@@ -334,9 +336,10 @@ function RequestRow({ request, to, selected, now }: { request: Appointment; to: 
         }`}
       >
         <span className="flex items-center gap-2">
-          <span className={`min-w-0 truncate ${selected ? 'font-bold' : 'font-semibold'} ${declined ? 'text-neutral-600' : ''}`}>{fullName(request.patient)}</span>
+          <span className={`min-w-0 truncate ${selected ? 'font-bold' : 'font-semibold'} ${declined ? 'text-neutral-600' : ''}`}>{whoName(request)}</span>
           {urgent && <Pill tone="solid">{urgent}</Pill>}
           {declined && <Pill tone="muted">Declined</Pill>}
+          {declined && request.source === 'ONLINE' && <OnlinePill />}
         </span>
         <span className="mt-0.5 block truncate text-sm text-neutral-600">
           {formatDayShort(manilaDate(request.startsAt))} · {formatTimeRange(request.startsAt, request.endsAt)} · {request.dentist ? dentistName(request.dentist) : 'Any dentist'}
@@ -344,8 +347,10 @@ function RequestRow({ request, to, selected, now }: { request: Appointment; to: 
         {declined ? (
           request.statusNote && <span className="mt-1 block truncate text-sm text-neutral-500">{request.statusNote}</span>
         ) : (
-          <span className="mt-1 flex items-center gap-2 text-sm text-neutral-500">
+          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-neutral-500">
             {waitingFor(request.createdAt, now)}
+            {request.source === 'ONLINE' && <OnlinePill />}
+            {request.patient === null && <NotLinkedPill />}
             {request.conflict && <Pill tone="outline">Clash</Pill>}
           </span>
         )}

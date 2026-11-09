@@ -1,4 +1,4 @@
-import { ROLE_LABELS } from '../auth/authStore'
+import { actorName, actorRole } from '../audit/actor'
 import { errorMessage } from '../../lib/api'
 import { formatDate, formatDateTime, SEX_LABELS } from '../../lib/format'
 import { usePatientHistory } from './queries'
@@ -13,6 +13,8 @@ const ACTIONS: Record<string, string> = {
   CHART_VIEWED: 'opened the dental chart',
   TOOTH_RECORDED: 'recorded a finding on the chart',
   TOOTH_CORRECTED: 'corrected a chart entry',
+  PATIENT_ACCOUNT_LINKED: 'linked an online booking account to the record',
+  PATIENT_ACCOUNT_UNLINKED: 'unlinked the online booking account',
 }
 
 const FIELDS: Record<string, string> = {
@@ -66,9 +68,9 @@ export function PatientHistory({ patientId }: { patientId: string }) {
                 <div>
                   <p>
                     <span className="font-semibold">
-                      {entry.actor.firstName} {entry.actor.lastName}
+                      {actorName(entry.actor)}
                     </span>
-                    <span className="text-neutral-500"> ({ROLE_LABELS[entry.actor.role]})</span>{' '}
+                    <span className="text-neutral-500"> ({actorRole(entry.actor)})</span>{' '}
                     {ACTIONS[entry.action] ?? entry.action}
                   </p>
                   {changes && (

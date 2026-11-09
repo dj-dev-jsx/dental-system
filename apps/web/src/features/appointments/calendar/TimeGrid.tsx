@@ -1,6 +1,7 @@
 import { type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { dentistName, formatTimeRange, fullName, todayInManila } from '../../../lib/format'
+import { dentistName, formatTimeRange, todayInManila } from '../../../lib/format'
 import type { Appointment } from '../types'
+import { whoName } from '../requester'
 import {
   clockOf,
   HOUR_PX,
@@ -386,7 +387,10 @@ function Event({ appointment, lane, lanes, showDentist, startHour, endHour, sele
   const { top, height } = placement(appointment.startsAt, appointment.endsAt, startHour, endHour)
   const request = appointment.status === 'REQUESTED'
   const time = formatTimeRange(appointment.startsAt, appointment.endsAt)
-  const name = fullName(appointment.patient)
+  const name = whoName(appointment)
+  // An online request from someone not yet tied to a record says so, so it isn't taken for a known patient.
+  const unlinked = appointment.patient === null
+  const kind = unlinked ? 'Not linked' : appointment.source === 'ONLINE' ? 'Online request' : 'Request'
   const who = appointment.dentist ? dentistName(appointment.dentist) : 'Any dentist'
   const short = height < 40
 
@@ -398,7 +402,7 @@ function Event({ appointment, lane, lanes, showDentist, startHour, endHour, sele
         onSelect(appointment)
       }}
       onPointerDown={(event) => onGrab(event, 'move')}
-      aria-label={`${request ? 'Request: ' : ''}${name}, ${time}, ${who}`}
+      aria-label={`${request ? `${kind}: ` : ''}${name}, ${time}, ${who}`}
       title={draggable ? 'Drag to move. Drag the bottom edge to change the length.' : undefined}
       aria-pressed={selected}
       className={`absolute z-10 overflow-hidden rounded-md px-2 text-left outline-neutral-950 transition-shadow duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 ${
@@ -424,7 +428,7 @@ function Event({ appointment, lane, lanes, showDentist, startHour, endHour, sele
         <>
           <span className="block truncate text-xs/4 font-semibold">{name}</span>
           <span className={`block truncate text-xs/4 ${request ? 'text-neutral-600' : 'text-neutral-300'}`}>
-            {request ? `Request · ${time}` : time}
+            {request ? `${kind} · ${time}` : time}
           </span>
           {height >= 60 && (showDentist || appointment.reason) && (
             <span className={`mt-0.5 block truncate text-xs/4 ${request ? 'text-neutral-600' : 'text-neutral-400'}`}>
@@ -467,11 +471,11 @@ function Ghost({ drag, allowed, dayStart }: { drag: Drag; allowed: boolean; dayS
     >
       {allowed && height < 40 ? (
         <span className="block truncate">
-          <span className="font-semibold">{fullName(drag.appointment.patient)}</span> {formatClock(start)} – {formatClock(end)}
+          <span className="font-semibold">{whoName(drag.appointment)}</span> {formatClock(start)} – {formatClock(end)}
         </span>
       ) : allowed ? (
         <>
-          <span className="block truncate font-semibold">{fullName(drag.appointment.patient)}</span>
+          <span className="block truncate font-semibold">{whoName(drag.appointment)}</span>
           <span className="block truncate">
             {formatClock(start)} – {formatClock(end)}
           </span>

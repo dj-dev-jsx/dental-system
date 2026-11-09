@@ -7,9 +7,11 @@ import { Page } from '../../components/Page'
 import { Segmented } from '../../components/Segmented'
 import { Pill } from '../../components/Table'
 import { errorMessage } from '../../lib/api'
-import { addDays, formatDayShort, formatTimeRange, fullName, manilaClock, manilaDate, manilaMoment, todayInManila } from '../../lib/format'
+import { addDays, formatDayShort, formatTimeRange, manilaClock, manilaDate, manilaMoment, todayInManila } from '../../lib/format'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
 import { useRequests, useSchedule } from '../appointments/queries'
+import { NotLinkedPill } from '../appointments/RequesterPills'
+import { patientPath, whoName } from '../appointments/requester'
 import type { Appointment } from '../appointments/types'
 import { overdueReason, waitedFor } from '../appointments/waiting'
 import { useStaffUser } from '../auth/authStore'
@@ -199,8 +201,11 @@ export default function TodayPage() {
                         className="-mx-2 block rounded-md px-2 py-3 outline-neutral-950 transition-colors duration-150 hover:bg-neutral-50 focus-visible:outline-2"
                       >
                         <span className="flex items-start justify-between gap-3">
-                          <span className="min-w-0 truncate font-semibold">{fullName(request.patient)}</span>
-                          {urgent && <Pill tone="solid">{urgent}</Pill>}
+                          <span className="min-w-0 truncate font-semibold">{whoName(request)}</span>
+                          <span className="flex shrink-0 gap-1.5">
+                            {request.patient === null && <NotLinkedPill />}
+                            {urgent && <Pill tone="solid">{urgent}</Pill>}
+                          </span>
                         </span>
                         <span className="mt-0.5 block text-sm text-neutral-700">
                           {formatDayShort(manilaDate(request.startsAt))}, {formatTimeRange(request.startsAt, request.endsAt)}
@@ -245,11 +250,11 @@ export default function TodayPage() {
                       <span className="font-semibold whitespace-nowrap">{time(appointment.startsAt)}</span>
                       <span className="min-w-0">
                         <Link to={`/app/appointments/${appointment.id}`} className="block truncate font-medium underline-offset-3 hover:underline">
-                          {fullName(appointment.patient)}
+                          {whoName(appointment)}
                         </Link>
                         <span className="block truncate text-neutral-500">
                           {shortDentist(appointment)}
-                          {appointment.status === 'REQUESTED' && ' · request'}
+                          {appointment.status === 'REQUESTED' && (appointment.patient ? ' · request' : ' · request, not linked')}
                         </span>
                       </span>
                     </li>
@@ -342,10 +347,10 @@ function Agenda({ appointments, now, showDentist }: { appointments: Appointment[
         </Link>
         <div className="min-w-0">
           <Link
-            to={`/app/patients/${appointment.patient.id}`}
+            to={patientPath(appointment) ?? `/app/requests/${appointment.id}`}
             className={`block truncate font-semibold underline-offset-3 outline-neutral-950 hover:underline focus-visible:outline-2 ${past ? '' : 'text-neutral-950'}`}
           >
-            {fullName(appointment.patient)}
+            {whoName(appointment)}
           </Link>
           <p className={`truncate text-sm ${past ? '' : 'text-neutral-600'}`}>
             {appointment.reason || 'No reason given'}
@@ -355,6 +360,7 @@ function Agenda({ appointments, now, showDentist }: { appointments: Appointment[
         <div className="flex items-start gap-2 pt-0.5">
           {current && <Pill tone="outline">In the chair</Pill>}
           {request && <Pill tone={past ? 'muted' : 'solid'}>Request</Pill>}
+          {appointment.patient === null && <NotLinkedPill />}
         </div>
       </li>
     )

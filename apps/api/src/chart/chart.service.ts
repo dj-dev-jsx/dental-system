@@ -10,7 +10,6 @@ import type { Prisma, ToothCondition, ToothSurface } from '../generated/prisma/c
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CorrectToothInput, RecordToothInput } from './chart.schemas.js';
 
-// Every query filters by clinicId as well as relying on row-level security: two locks.
 
 export const RECORD_FIELDS = {
   id: true,
@@ -72,10 +71,10 @@ export class ChartService {
 
   /** A patient's whole chart: each tooth as it is now, and every entry ever made, newest first. */
   chart(user: AuthenticatedUser, patientId: string) {
-    return this.prisma.forClinic(user.clinicId, async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       await this.findPatient(tx, user, patientId);
       const records = await tx.toothRecord.findMany({
-        where: { clinicId: user.clinicId, patientId },
+        where: { patientId },
         select: RECORD_FIELDS,
         orderBy: [{ recordedAt: 'desc' }, { createdAt: 'desc' }],
         take: 2000,
@@ -87,11 +86,11 @@ export class ChartService {
 
   /** Adds a finding to one tooth. */
   record(user: AuthenticatedUser, patientId: string, input: RecordToothInput) {
-    return this.prisma.forClinic(user.clinicId, async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       await this.findPatient(tx, user, patientId, { forChange: true });
       if (input.appointmentId) {
         const appointment = await tx.appointment.findFirst({
-          where: { clinicId: user.clinicId, patientId, id: input.appointmentId },
+          where: { patientId, id: input.appointmentId },
           select: { id: true },
         });
         if (!appointment) {
@@ -101,7 +100,6 @@ export class ChartService {
       const record = await tx.toothRecord.create({
         data: {
           ...input,
-          clinicId: user.clinicId,
           patientId,
           recordedById: user.id,
           recordedAt: new Date(),
@@ -119,10 +117,10 @@ export class ChartService {
   /** Corrects a wrong entry with a new one that takes its place and says why. */
   correct(user: AuthenticatedUser, patientId: string, recordId: string, input: CorrectToothInput) {
     return this.prisma
-      .forClinic(user.clinicId, async (tx) => {
+      .$transaction(async (tx) => {
         await this.findPatient(tx, user, patientId, { forChange: true });
         const wrong = await tx.toothRecord.findFirst({
-          where: { clinicId: user.clinicId, patientId, id: recordId },
+          where: { patientId, id: recordId },
           select: { id: true, tooth: true, condition: true, recordedAt: true, appointmentId: true, correctedBy: { select: { id: true } } },
         });
         if (!wrong) throw new NotFoundException('Chart entry not found');
@@ -132,7 +130,6 @@ export class ChartService {
         const correction = await tx.toothRecord.create({
           data: {
             ...fields,
-            clinicId: user.clinicId,
             patientId,
             tooth: wrong.tooth,
             // Takes the wrong entry's place in the tooth's timeline.
@@ -169,7 +166,7 @@ export class ChartService {
     { forChange = false } = {},
   ) {
     const patient = await tx.patient.findUnique({
-      where: { clinicId_id: { clinicId: user.clinicId, id: patientId } },
+      where: { id: patientId },
       select: { archivedAt: true },
     });
     if (!patient) throw new NotFoundException('Patient not found');

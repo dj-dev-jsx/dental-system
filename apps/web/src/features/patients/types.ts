@@ -1,5 +1,7 @@
 import type { StaffRole } from '../auth/authStore'
+import type { Actor } from '../audit/actor'
 import type { Condition } from '../dental-chart/model/status'
+import type { OnlineAccount } from '../patient-accounts/types'
 
 // The shapes the API sends back. They mirror apps/api/src/patients/patients.service.ts.
 
@@ -45,7 +47,6 @@ export type ChartSummary = {
 
 /** The full record, sent only when someone opens it (and the API logs that). */
 export type Patient = PatientSummary & {
-  clinicId: string
   address: string | null
   emergencyContactName: string | null
   emergencyContactPhone: string | null
@@ -55,6 +56,8 @@ export type Patient = PatientSummary & {
   updatedAt: string
   /** Missing in what a save returns; the record then keeps the summary it already had. */
   chartSummary?: ChartSummary
+  /** The online booking account linked to this record, if any. Missing in what a save returns. */
+  onlineAccount?: OnlineAccount | null
 }
 
 export type Page<T> = { items: T[]; total: number; page: number; limit: number }
@@ -89,5 +92,5 @@ export type AuditEntry = {
   entityId: string | null
   metadata: unknown
   createdAt: string
-  actor: { id: string; firstName: string; lastName: string; role: StaffRole }
+  actor: Actor
 }

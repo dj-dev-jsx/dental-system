@@ -7,7 +7,6 @@ export type StaffRole = 'ADMIN' | 'DENTIST' | 'RECEPTIONIST' | 'ASSISTANT'
 /** The logged-in staff member, as GET /auth/me returns them. */
 export type StaffUser = {
   id: string
-  clinicId: string
   clinicName: string
   email: string
   firstName: string

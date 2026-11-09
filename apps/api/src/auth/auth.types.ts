@@ -1,11 +1,9 @@
 import type { Request } from 'express';
 import type { UserRole } from '../generated/prisma/client.js';
 
-/** Who is making this request. clinicId comes from here, never from the request itself. */
+/** Who is making this request. */
 export type AuthenticatedUser = {
   id: string;
-  clinicId: string;
-  clinicName: string;
   email: string;
   firstName: string;
   lastName: string;

@@ -10,9 +10,6 @@ import type {
   UpdatePatientInput,
 } from './patients.schemas.js';
 
-// Every query below also filters by clinicId, even though row-level security already does.
-// These are two separate locks: a mistake in one is still caught by the other.
-
 // A list shows only what's needed to pick the right patient. The address, email and
 // emergency contact are only sent when someone opens a record, which is logged by patient.
 const LIST_FIELDS = {
@@ -88,10 +85,8 @@ type FactRow = {
 
 // For a page of patients, in one query: the soonest appointment that is still ahead (asked
 // for or confirmed; one in progress counts) and when the latest confirmed visit ended.
-// Both filter by clinic, in addition to row-level security.
 async function appointmentFacts(
   tx: Prisma.TransactionClient,
-  clinicId: string,
   patientIds: string[],
 ) {
   const facts = new Map<string, AppointmentFacts>();
@@ -102,18 +97,18 @@ async function appointmentFacts(
            n.id AS appointment_id, n.starts_at, n.ends_at, n.status, n.reason,
            n.dentist_id, u.last_name AS dentist_last_name,
            (SELECT max(l.ends_at) FROM appointments l
-             WHERE l.clinic_id = ${clinicId}::uuid AND l.patient_id = ids.id
+             WHERE l.patient_id = ids.id
                AND l.status = 'CONFIRMED' AND l.ends_at <= now()) AS last_visit_at
     FROM unnest(${patientIds}::uuid[]) AS ids(id)
     LEFT JOIN LATERAL (
       SELECT a.id, a.starts_at, a.ends_at, a.status, a.reason, a.dentist_id
       FROM appointments a
-      WHERE a.clinic_id = ${clinicId}::uuid AND a.patient_id = ids.id
+      WHERE a.patient_id = ids.id
         AND a.status IN ('REQUESTED', 'CONFIRMED') AND a.ends_at > now()
       ORDER BY a.starts_at ASC, a.id ASC
       LIMIT 1
     ) n ON true
-    LEFT JOIN users u ON u.clinic_id = ${clinicId}::uuid AND u.id = n.dentist_id`;
+    LEFT JOIN users u ON u.id = n.dentist_id`;
   for (const row of rows) {
     facts.set(row.patient_id, {
       nextAppointment: row.appointment_id
@@ -137,7 +132,6 @@ async function appointmentFacts(
 // searchFilter, written for SQL.
 async function sortedPatientIds(
   tx: Prisma.TransactionClient,
-  clinicId: string,
   { search, archived, sort, dir, page, limit }: {
     search?: string; archived: boolean; sort: 'nextAppointment' | 'lastVisit'; dir: 'asc' | 'desc'; page: number; limit: number;
   },
@@ -149,16 +143,15 @@ async function sortedPatientIds(
   const key =
     sort === 'nextAppointment'
       ? Prisma.sql`SELECT min(a.starts_at) AS v FROM appointments a
-          WHERE a.clinic_id = p.clinic_id AND a.patient_id = p.id
+          WHERE a.patient_id = p.id
             AND a.status IN ('REQUESTED', 'CONFIRMED') AND a.ends_at > now()`
       : Prisma.sql`SELECT max(a.ends_at) AS v FROM appointments a
-          WHERE a.clinic_id = p.clinic_id AND a.patient_id = p.id
+          WHERE a.patient_id = p.id
             AND a.status = 'CONFIRMED' AND a.ends_at <= now()`;
   const rows = await tx.$queryRaw<{ id: string }[]>`
     SELECT p.id FROM patients p
     LEFT JOIN LATERAL (${key}) k ON true
-    WHERE p.clinic_id = ${clinicId}::uuid
-      AND p.archived_at IS ${archived ? Prisma.sql`NOT NULL` : Prisma.sql`NULL`}
+    WHERE p.archived_at IS ${archived ? Prisma.sql`NOT NULL` : Prisma.sql`NULL`}
       ${words.length > 0 ? Prisma.join(words, ' ') : Prisma.empty}
     ORDER BY k.v ${dir === 'desc' ? Prisma.sql`DESC` : Prisma.sql`ASC`} NULLS LAST, p.id ASC
     LIMIT ${limit} OFFSET ${(page - 1) * limit}`;
@@ -171,11 +164,10 @@ export class PatientsService {
 
   create(user: AuthenticatedUser, input: CreatePatientInput) {
     const { privacyConsent, birthDate, ...fields } = input;
-    return this.prisma.forClinic(user.clinicId, async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const patient = await tx.patient.create({
         data: {
           ...fields,
-          clinicId: user.clinicId,
           birthDate: new Date(birthDate),
           privacyConsentAt: privacyConsent ? new Date() : null,
         },
@@ -189,9 +181,8 @@ export class PatientsService {
     user: AuthenticatedUser,
     { search, archived = false, page, limit, sort, dir }: ListPatientsQuery,
   ) {
-    return this.prisma.forClinic(user.clinicId, async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const where: Prisma.PatientWhereInput = {
-        clinicId: user.clinicId,
         archivedAt: archived ? { not: null } : null,
         AND: searchFilter(search),
       };
@@ -206,7 +197,7 @@ export class PatientsService {
           take: limit,
         });
       } else {
-        const ids = await sortedPatientIds(tx, user.clinicId, { search, archived, sort, dir, page, limit });
+        const ids = await sortedPatientIds(tx, { search, archived, sort, dir, page, limit });
         const found = await tx.patient.findMany({
           where: { ...where, id: { in: ids } },
           select: LIST_FIELDS,
@@ -217,7 +208,6 @@ export class PatientsService {
       const total = await tx.patient.count({ where });
       const facts = await appointmentFacts(
         tx,
-        user.clinicId,
         patients.map((patient) => patient.id),
       );
       await recordAudit(tx, user, 'PATIENT_LISTED', {
@@ -238,27 +228,32 @@ export class PatientsService {
   }
 
   findOne(user: AuthenticatedUser, id: string) {
-    return this.prisma.forClinic(user.clinicId, async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const patient = await tx.patient.findUnique({
-        where: { clinicId_id: { clinicId: user.clinicId, id } },
+        where: { id },
       });
       if (!patient) throw new NotFoundException('Patient not found');
       await recordAudit(tx, user, 'PATIENT_VIEWED', { entityId: id });
-      const facts = (await appointmentFacts(tx, user.clinicId, [id])).get(id);
+      const facts = (await appointmentFacts(tx, [id])).get(id);
       return {
         ...withDateOnly(patient),
         nextAppointment: facts?.nextAppointment ?? null,
         lastVisitAt: facts?.lastVisitAt ?? null,
-        chartSummary: await this.chartSummary(tx, user.clinicId, id),
+        chartSummary: await this.chartSummary(tx, id),
+        // The online booking account staff linked to this record, if any.
+        onlineAccount: await tx.patientAccount.findUnique({
+          where: { patientId: id },
+          select: { id: true, email: true, emailVerifiedAt: true, linkedAt: true },
+        }),
       };
     });
   }
 
   // How the teeth are now, counted by condition, and the newest entry. Read with the same
   // rule as the chart page, but without logging a chart view: this is part of the record.
-  private async chartSummary(tx: Prisma.TransactionClient, clinicId: string, patientId: string) {
+  private async chartSummary(tx: Prisma.TransactionClient, patientId: string) {
     const records = await tx.toothRecord.findMany({
-      where: { clinicId, patientId },
+      where: { patientId },
       select: CHART_RECORD_FIELDS,
       orderBy: [{ recordedAt: 'desc' }, { createdAt: 'desc' }],
       take: 2000,
@@ -289,9 +284,8 @@ export class PatientsService {
 
   update(user: AuthenticatedUser, id: string, input: UpdatePatientInput) {
     const { privacyConsent, birthDate, ...fields } = input;
-    return this.prisma.forClinic(user.clinicId, async (tx) => {
-      const clinicId_id = { clinicId: user.clinicId, id };
-      const current = await tx.patient.findUnique({ where: { clinicId_id } });
+    return this.prisma.$transaction(async (tx) => {
+            const current = await tx.patient.findUnique({ where: { id } });
       if (!current) throw new NotFoundException('Patient not found');
       if (current.archivedAt) throw new ConflictException('This patient is archived');
 
@@ -312,7 +306,7 @@ export class PatientsService {
       }
       if (Object.keys(changes).length === 0) return withDateOnly(current); // nothing to save or log
 
-      const patient = await tx.patient.update({ where: { clinicId_id }, data });
+      const patient = await tx.patient.update({ where: { id }, data });
       await recordAudit(tx, user, 'PATIENT_UPDATED', { entityId: id, metadata: { changes } });
       return withDateOnly(patient);
     });
@@ -327,15 +321,14 @@ export class PatientsService {
   }
 
   private setArchived(user: AuthenticatedUser, id: string, archive: boolean) {
-    return this.prisma.forClinic(user.clinicId, async (tx) => {
-      const clinicId_id = { clinicId: user.clinicId, id };
-      const current = await tx.patient.findUnique({ where: { clinicId_id } });
+    return this.prisma.$transaction(async (tx) => {
+            const current = await tx.patient.findUnique({ where: { id } });
       if (!current) throw new NotFoundException('Patient not found');
       // Already archived (or already active), so there's nothing to do or log.
       if (Boolean(current.archivedAt) === archive) return;
 
       await tx.patient.update({
-        where: { clinicId_id },
+        where: { id },
         data: { archivedAt: archive ? new Date() : null },
       });
       await recordAudit(tx, user, archive ? 'PATIENT_ARCHIVED' : 'PATIENT_RESTORED', {

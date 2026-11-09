@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { buttonOnDark } from '../components/buttons'
 import { AlertIcon, CalendarIcon, InboxIcon, ListIcon, PeopleIcon, PlusIcon, SettingsIcon, SignOutIcon, SunIcon, UsersIcon } from '../components/icons'
 import { MiniMonth } from '../components/MiniMonth'
-import { PRODUCT_NAME } from '../config'
 import { useRequestCount } from '../features/appointments/queries'
 import { ROLE_LABELS, useAuthStore, useStaffUser } from '../features/auth/authStore'
 import { isDate, todayInManila } from '../lib/format'
@@ -44,7 +43,7 @@ function useIsActive() {
 }
 
 /** Signing out can fail when the server can't be reached; then say so rather than pretend. */
-function useSignOut() {
+export function useSignOut() {
   const signOut = useAuthStore((store) => store.signOut)
   const [signingOut, setSigningOut] = useState(false)
   const [error, setError] = useState(false)
@@ -134,7 +133,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </span>
         <div className="min-w-0">
           <p className="truncate text-base/6 font-semibold">{user.clinicName}</p>
-          <p className="text-xs text-neutral-500">{PRODUCT_NAME}</p>
+          <p className="text-xs text-neutral-500">Staff</p>
         </div>
       </div>
 

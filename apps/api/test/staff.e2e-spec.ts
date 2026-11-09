@@ -20,8 +20,6 @@ describe('Staff management (e2e)', () => {
   let prisma: PrismaService;
   const owner = ownerClient();
   const http = () => request(app.getHttpServer());
-  let clinicId: string;
-  let otherClinicId: string;
   const ids: Record<string, string> = {};
 
   const login = (email: string, password = PASSWORD) =>
@@ -46,15 +44,10 @@ describe('Staff management (e2e)', () => {
 
   beforeEach(async () => {
     await resetDatabase(owner);
-    const clinic = await prisma.clinic.create({ data: { name: 'Clinic A' } });
-    const other = await prisma.clinic.create({ data: { name: 'Clinic B' } });
-    clinicId = clinic.id;
-    otherClinicId = other.id;
     const passwordHash = await hashPassword(PASSWORD);
-    const make = async (key: string, cid: string, role: Role, last: string) => {
+    const make = async (key: string, role: Role, last: string) => {
       const u = await prisma.user.create({
         data: {
-          clinicId: cid,
           email: `${key}@test.example`,
           passwordHash,
           firstName: 'F',
@@ -64,13 +57,11 @@ describe('Staff management (e2e)', () => {
       });
       ids[key] = u.id;
     };
-    await make('admin', clinicId, 'ADMIN', 'Adams');
-    await make('admin2', clinicId, 'ADMIN', 'Baker');
-    await make('reception', clinicId, 'RECEPTIONIST', 'Cruz');
-    await make('dentist', clinicId, 'DENTIST', 'Dela');
-    await make('assistant', clinicId, 'ASSISTANT', 'Eve');
-    await make('adminb', otherClinicId, 'ADMIN', 'Other');
-    await make('userb', otherClinicId, 'DENTIST', 'Other2');
+    await make('admin', 'ADMIN', 'Adams');
+    await make('admin2', 'ADMIN', 'Baker');
+    await make('reception', 'RECEPTIONIST', 'Cruz');
+    await make('dentist', 'DENTIST', 'Dela');
+    await make('assistant', 'ASSISTANT', 'Eve');
   });
 
   afterAll(async () => {
@@ -93,7 +84,6 @@ describe('Staff management (e2e)', () => {
       'createdAt', 'email', 'firstName', 'id', 'isActive', 'lastName', 'lastSignInAt',
       'lockedUntil', 'mustChangePassword', 'role',
     ]);
-    // Only this clinic's people.
     expect(res.body.items).toHaveLength(5);
   });
 
@@ -150,13 +140,12 @@ describe('Staff management (e2e)', () => {
       expect(byRole.body.items[0].role).toBe('ADMIN');
     });
 
-    it('refuses unknown or bad parameters and stays inside the clinic', async () => {
+    it('refuses unknown or bad parameters', async () => {
       const cookie = await session('admin@test.example');
       await get(cookie, '?sort=password').expect(400);
       await get(cookie, '?status=maybe').expect(400);
       await get(cookie, '?role=OWNER').expect(400);
       await get(cookie, '?clinicId=x').expect(400);
-      expect(lastNames(await get(cookie, '?search=Other').expect(200))).toEqual([]);
     });
   });
 
@@ -204,12 +193,11 @@ describe('Staff management (e2e)', () => {
     expect(user.passwordHash).toBeUndefined();
 
     const stored = await owner.user.findUniqueOrThrow({ where: { id: user.id } });
-    expect(stored.clinicId).toBe(clinicId);
     expect(stored.passwordHash).not.toContain(temporaryPassword);
 
     const lines = await audit('STAFF_CREATED');
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ entityId: user.id, actorUserId: ids['admin'], clinicId });
+    expect(lines[0]).toMatchObject({ entityId: user.id, actorUserId: ids['admin'] });
     expect(lines[0].metadata).toEqual({ role: 'DENTIST' });
     expect(JSON.stringify(await owner.auditLog.findMany())).not.toContain(temporaryPassword);
 
@@ -225,7 +213,7 @@ describe('Staff management (e2e)', () => {
       { ...ok, firstName: '' },
       { ...ok, lastName: 'x'.repeat(101) },
       { ...ok, role: 'KING' },
-      { ...ok, clinicId: otherClinicId },
+      { ...ok, clinicId: 'x' },
       { ...ok, password: 'hunter2hunter2' },
     ];
     for (const body of bad) {
@@ -234,9 +222,9 @@ describe('Staff management (e2e)', () => {
     expect(await owner.user.count({ where: { email: 'v@test.example' } })).toBe(0);
   });
 
-  it('refuses a duplicate email, even one used in another clinic, with 409', async () => {
+  it('refuses a duplicate email with 409', async () => {
     const cookie = await session('admin@test.example');
-    for (const email of ['RECEPTION@test.example', 'userb@test.example']) {
+    for (const email of ['RECEPTION@test.example', 'dentist@test.example']) {
       const res = await http()
         .post('/api/v1/staff')
         .set('Cookie', cookie)
@@ -344,7 +332,7 @@ describe('Staff management (e2e)', () => {
         http().patch(`/api/v1/staff/${id}`).set('Cookie', admin).send(body);
       await patch({}).expect(400);
       await patch({ email: 'x@test.example' }).expect(400);
-      await patch({ clinicId: otherClinicId }).expect(400);
+      await patch({ clinicId: 'x' }).expect(400);
       await patch({ role: 'KING' }).expect(400);
       await patch({ isActive: 'no' }).expect(400);
       await patch({ firstName: '' }).expect(400);
@@ -363,18 +351,8 @@ describe('Staff management (e2e)', () => {
       await login('dentist@test.example').expect(204);
     });
 
-    it('404s for another clinic and changes nothing', async () => {
+    it('404s for someone who does not exist', async () => {
       const admin = await session('admin@test.example');
-      const victim = await session('userb@test.example');
-      await http()
-        .patch(`/api/v1/staff/${ids['userb']}`)
-        .set('Cookie', admin)
-        .send({ firstName: 'Hacked', role: 'ADMIN', isActive: false })
-        .expect(404);
-      const row = await owner.user.findUniqueOrThrow({ where: { id: ids['userb'] } });
-      expect(row).toMatchObject({ firstName: 'F', role: 'DENTIST', isActive: true });
-      await http().get('/api/v1/auth/me').set('Cookie', victim).expect(200);
-      expect(await audit('STAFF_UPDATED')).toHaveLength(0);
       await http()
         .patch('/api/v1/staff/00000000-0000-4000-8000-000000000000')
         .set('Cookie', admin)
@@ -403,7 +381,7 @@ describe('Staff management (e2e)', () => {
         http().patch(`/api/v1/staff/${ids['admin']}`).set('Cookie', b).send({ role: 'ASSISTANT' }),
       ]);
       expect(results.map((r) => r.status).sort((x, y) => x - y)).toEqual([200, 409]);
-      const admins = await owner.user.count({ where: { clinicId, role: 'ADMIN', isActive: true } });
+      const admins = await owner.user.count({ where: { role: 'ADMIN', isActive: true } });
       expect(admins).toBe(1);
     });
 
@@ -415,7 +393,7 @@ describe('Staff management (e2e)', () => {
         http().patch(`/api/v1/staff/${ids['admin']}`).set('Cookie', b).send({ isActive: false }),
       ]);
       expect(results.map((r) => r.status).sort((x, y) => x - y)).toEqual([200, 409]);
-      const admins = await owner.user.count({ where: { clinicId, role: 'ADMIN', isActive: true } });
+      const admins = await owner.user.count({ where: { role: 'ADMIN', isActive: true } });
       expect(admins).toBe(1);
     });
   });
@@ -452,12 +430,12 @@ describe('Staff management (e2e)', () => {
       expect(JSON.stringify(await owner.auditLog.findMany())).not.toContain(temp);
     });
 
-    it('refuses to reset yourself (409) and another clinic (404)', async () => {
+    it('refuses to reset yourself (409) and someone who does not exist (404)', async () => {
       const admin = await session('admin@test.example');
+      const before = await owner.user.findUniqueOrThrow({ where: { id: ids['admin'] } });
       await http().post(`/api/v1/staff/${ids['admin']}/reset-password`).set('Cookie', admin).expect(409);
-      const before = await owner.user.findUniqueOrThrow({ where: { id: ids['userb'] } });
-      await http().post(`/api/v1/staff/${ids['userb']}/reset-password`).set('Cookie', admin).expect(404);
-      const after = await owner.user.findUniqueOrThrow({ where: { id: ids['userb'] } });
+      await http().post(`/api/v1/staff/00000000-0000-4000-8000-000000000000/reset-password`).set('Cookie', admin).expect(404);
+      const after = await owner.user.findUniqueOrThrow({ where: { id: ids['admin'] } });
       expect(after.passwordHash).toBe(before.passwordHash);
       expect(after.mustChangePassword).toBe(false);
       expect(await audit('STAFF_PASSWORD_RESET')).toHaveLength(0);
@@ -483,17 +461,9 @@ describe('Staff management (e2e)', () => {
       expect(await audit('STAFF_UNLOCKED')).toHaveLength(1);
     });
 
-    it('404s for another clinic and changes nothing', async () => {
+    it('404s for someone who does not exist', async () => {
       const admin = await session('admin@test.example');
-      const locked = new Date(Date.now() + 600_000);
-      await owner.user.update({
-        where: { id: ids['userb'] },
-        data: { failedLogins: 4, lockedUntil: locked },
-      });
-      await http().post(`/api/v1/staff/${ids['userb']}/unlock`).set('Cookie', admin).expect(404);
-      const row = await owner.user.findUniqueOrThrow({ where: { id: ids['userb'] } });
-      expect(row.failedLogins).toBe(4);
-      expect(row.lockedUntil).not.toBeNull();
+      await http().post(`/api/v1/staff/00000000-0000-4000-8000-000000000000/unlock`).set('Cookie', admin).expect(404);
       expect(await audit('STAFF_UNLOCKED')).toHaveLength(0);
     });
   });

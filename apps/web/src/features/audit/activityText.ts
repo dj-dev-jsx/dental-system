@@ -1,6 +1,6 @@
 // How the activity log words things: kept apart from the page so it can be read on its own.
 import { formatDate, formatDateTime } from '../../lib/format'
-import type { StaffRole } from '../auth/authStore'
+import type { Actor } from './actor'
 
 /** One line of the log, as GET /audit-logs returns it. */
 export type ActivityEntry = {
@@ -9,12 +9,15 @@ export type ActivityEntry = {
   entityId: string | null
   metadata: unknown
   createdAt: string
-  actor: { id: string; firstName: string; lastName: string; role: StaffRole }
+  /** A staff member, or a patient using the clinic's booking page. */
+  actor: Actor
   /** What the line is about, named: null for sign-ins and clinic settings. */
   subject:
     | { kind: 'patient'; id: string; name: string }
     | { kind: 'staff'; id: string; name: string }
     | { kind: 'appointment'; id: string; name: string; startsAt: string }
+    /** An online booking account, for the patient's own sign-up, email and password lines. */
+    | { kind: 'patientAccount'; id: string; name: string }
     | null
 }
 
@@ -45,12 +48,26 @@ const SENTENCES: Record<string, [string, string]> = {
   STAFF_UNLOCKED: ['unlocked the account of', 'unlocked a staff account'],
   PASSWORD_CHANGED: ['changed their password', 'changed their password'],
   CLINIC_UPDATED: ['changed the clinic settings', 'changed the clinic settings'],
+  // Online booking. The patient's own lines are about their account, so they name no one else.
+  PATIENT_ACCOUNT_REGISTERED: ['signed up for online booking', 'signed up for online booking'],
+  PATIENT_EMAIL_VERIFIED: ['confirmed their email', 'confirmed their email'],
+  PATIENT_LOGIN_SUCCEEDED: ['signed in online', 'signed in online'],
+  PATIENT_LOGIN_FAILED: ['failed to sign in online', 'failed to sign in online'],
+  PATIENT_LOGOUT: ['signed out online', 'signed out online'],
+  PATIENT_PASSWORD_RESET: ['reset their password online', 'reset their password online'],
+  APPOINTMENT_REQUESTED_ONLINE: ['asked online for an appointment for', 'asked online for an appointment'],
+  APPOINTMENT_CANCELLED_BY_PATIENT: ['cancelled online the appointment of', 'cancelled an appointment online'],
+  PATIENT_ACCOUNT_LINKED: ['linked an online booking account to the record of', 'linked an online booking account'],
+  PATIENT_ACCOUNT_UNLINKED: ['unlinked the online booking account from the record of', 'unlinked an online booking account'],
 }
+
+/** Lines about the actor's own account: the subject would only repeat their name. */
+const ABOUT_THEMSELVES = new Set(['PASSWORD_CHANGED', 'PATIENT_ACCOUNT_REGISTERED', 'PATIENT_EMAIL_VERIFIED', 'PATIENT_PASSWORD_RESET'])
 
 export function sentence(entry: ActivityEntry) {
   const [named, plain] = SENTENCES[entry.action] ?? [entry.action, entry.action]
-  // A staff member changing their own password is not "about" anyone else.
-  if (!entry.subject || entry.action === 'PASSWORD_CHANGED') return { text: plain, hasSubject: false }
+  // Changing your own password, or a patient signing up, is not "about" anyone else.
+  if (!entry.subject || entry.subject.kind === 'patientAccount' || ABOUT_THEMSELVES.has(entry.action)) return { text: plain, hasSubject: false }
   return { text: named, hasSubject: true }
 }
 
@@ -59,6 +76,8 @@ export function subjectLink(entry: ActivityEntry) {
   const subject = entry.subject
   if (!subject) return null
   if (subject.kind === 'staff') return '/app/staff'
+  // Online accounts have no page of their own: they're seen on the request or the patient's record.
+  if (subject.kind === 'patientAccount') return null
   if (subject.kind === 'appointment') return `/app/appointments/${subject.id}`
   if (entry.action === 'CHART_VIEWED' || entry.action.startsWith('TOOTH_')) return `/app/patients/${subject.id}/chart`
   return `/app/patients/${subject.id}`
@@ -67,16 +86,51 @@ export function subjectLink(entry: ActivityEntry) {
 /** The groups in the "Kind" filter, and the log lines each one covers. */
 export const KIND_GROUPS = [
   { value: 'signins', label: 'Sign-ins', actions: ['LOGIN_SUCCEEDED', 'LOGIN_FAILED', 'LOGOUT'] },
-  { value: 'failed', label: 'Failed sign-ins', actions: ['LOGIN_FAILED'] },
+  { value: 'failed', label: 'Failed sign-ins', actions: ['LOGIN_FAILED', 'PATIENT_LOGIN_FAILED'] },
   {
     value: 'patients',
     label: 'Patients',
-    actions: ['PATIENT_CREATED', 'PATIENT_LISTED', 'PATIENT_VIEWED', 'PATIENT_UPDATED', 'PATIENT_ARCHIVED', 'PATIENT_RESTORED'],
+    actions: [
+      'PATIENT_CREATED',
+      'PATIENT_LISTED',
+      'PATIENT_VIEWED',
+      'PATIENT_UPDATED',
+      'PATIENT_ARCHIVED',
+      'PATIENT_RESTORED',
+      'PATIENT_ACCOUNT_LINKED',
+      'PATIENT_ACCOUNT_UNLINKED',
+    ],
   },
   {
     value: 'appointments',
     label: 'Appointments',
-    actions: ['APPOINTMENT_CREATED', 'APPOINTMENT_LISTED', 'APPOINTMENT_VIEWED', 'APPOINTMENT_UPDATED', 'APPOINTMENT_CONFIRMED', 'APPOINTMENT_DECLINED', 'APPOINTMENT_CANCELLED'],
+    actions: [
+      'APPOINTMENT_CREATED',
+      'APPOINTMENT_REQUESTED_ONLINE',
+      'APPOINTMENT_LISTED',
+      'APPOINTMENT_VIEWED',
+      'APPOINTMENT_UPDATED',
+      'APPOINTMENT_CONFIRMED',
+      'APPOINTMENT_DECLINED',
+      'APPOINTMENT_CANCELLED',
+      'APPOINTMENT_CANCELLED_BY_PATIENT',
+    ],
+  },
+  {
+    value: 'online',
+    label: 'Online booking',
+    actions: [
+      'PATIENT_ACCOUNT_REGISTERED',
+      'PATIENT_EMAIL_VERIFIED',
+      'PATIENT_LOGIN_SUCCEEDED',
+      'PATIENT_LOGIN_FAILED',
+      'PATIENT_LOGOUT',
+      'PATIENT_PASSWORD_RESET',
+      'APPOINTMENT_REQUESTED_ONLINE',
+      'APPOINTMENT_CANCELLED_BY_PATIENT',
+      'PATIENT_ACCOUNT_LINKED',
+      'PATIENT_ACCOUNT_UNLINKED',
+    ],
   },
   { value: 'charts', label: 'Dental charts', actions: ['CHART_VIEWED', 'TOOTH_RECORDED', 'TOOTH_CORRECTED'] },
   {
@@ -90,7 +144,12 @@ export const KIND_GROUPS = [
 export function emphasis(entry: ActivityEntry): { tone: 'solid' | 'outline'; label: string } | null {
   switch (entry.action) {
     case 'LOGIN_FAILED':
+    case 'PATIENT_LOGIN_FAILED':
       return { tone: 'solid', label: 'Failed sign-in' }
+    case 'PATIENT_ACCOUNT_LINKED':
+      return { tone: 'outline', label: 'Account linked' }
+    case 'PATIENT_ACCOUNT_UNLINKED':
+      return { tone: 'outline', label: 'Account unlinked' }
     case 'PATIENT_ARCHIVED':
       return { tone: 'outline', label: 'Archived' }
     case 'STAFF_PASSWORD_RESET':
@@ -110,12 +169,13 @@ const FAILURE_REASONS: Record<string, string> = {
   WRONG_PASSWORD: 'wrong password',
   ACCOUNT_LOCKED: 'account locked',
   ACCOUNT_DEACTIVATED: 'account deactivated',
+  EMAIL_NOT_VERIFIED: 'email not confirmed yet',
 }
 
 /** Why a sign-in failed, in words. */
 export function failureReason(entry: ActivityEntry) {
   const metadata = entry.metadata as { reason?: string; accountLocked?: boolean } | null
-  if (entry.action !== 'LOGIN_FAILED' || !metadata?.reason) return null
+  if ((entry.action !== 'LOGIN_FAILED' && entry.action !== 'PATIENT_LOGIN_FAILED') || !metadata?.reason) return null
   const reason = FAILURE_REASONS[metadata.reason] ?? null
   return reason && metadata.accountLocked ? `${reason}, account now locked` : reason
 }

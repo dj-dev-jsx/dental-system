@@ -3,10 +3,10 @@ import { buttonOutline } from '../../components/buttons'
 import { ErrorBox } from '../../components/ErrorBox'
 import { Page, PageHeader } from '../../components/Page'
 import { errorMessage } from '../../lib/api'
-import { fullName } from '../../lib/format'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
 import { AppointmentForm } from './AppointmentForm'
 import { useAppointment, useUpdateAppointment } from './queries'
+import { whoName } from './requester'
 import type { AppointmentChanges } from './types'
 
 /** Moves a confirmed appointment, or changes its dentist or reason. */
@@ -23,7 +23,7 @@ export default function EditAppointmentPage() {
       <PageHeader
         back={{ to: back, label: 'Appointment' }}
         title="Change appointment"
-        description={appointment ? `For ${fullName(appointment.patient)}. Nothing changes until you save.` : undefined}
+        description={appointment ? `For ${whoName(appointment)}. Nothing changes until you save.` : undefined}
       />
       {isPending ? (
         <div className="mt-8 h-64 rounded bg-neutral-100" aria-busy="true" />
