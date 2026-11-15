@@ -103,7 +103,15 @@ function Summary({ chart, onSelect }: Props) {
   )
 }
 
-function ToothView({ patientId, chart, tooth, onSelect, canWrite, archived }: Props & { tooth: FdiCode }) {
+/**
+ * One tooth's state, a way to record a finding, and its history. The 3D scans page shows the
+ * same thing for a tooth clicked on a scan, with its own back link.
+ */
+export function ToothHistory(props: Omit<Props, 'selected'> & { tooth: FdiCode; backLabel?: string }) {
+  return <ToothView {...props} selected={props.tooth} />
+}
+
+function ToothView({ patientId, chart, tooth, onSelect, canWrite, archived, backLabel = 'Whole chart' }: Props & { tooth: FdiCode; backLabel?: string }) {
   const now = chart.teeth[tooth]
   const records = chart.records.filter((record) => record.tooth === tooth)
   const latest = now ? records.find((record) => record.id === now.recordId) : undefined
@@ -111,7 +119,7 @@ function ToothView({ patientId, chart, tooth, onSelect, canWrite, archived }: Pr
   return (
     <>
       <button type="button" onClick={() => onSelect(null)} className="text-sm font-medium text-neutral-600 underline-offset-3 hover:text-neutral-950 hover:underline">
-        Whole chart
+        {backLabel}
       </button>
       <h2 className="mt-3 text-3xl font-bold tracking-[-0.02em] tabular-nums">{tooth}</h2>
       <p className="text-neutral-600">{toothName(tooth)}</p>

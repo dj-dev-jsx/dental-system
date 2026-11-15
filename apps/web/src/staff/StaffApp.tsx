@@ -26,6 +26,8 @@ import { TopBar } from './TopBar'
 
 // The dental chart (and its 3D model) is most of the app's download, so it only loads when opened.
 const ChartPage = lazy(() => import('../features/dental-chart/ChartPage'))
+// Likewise the 3D scan viewer, which brings its own three.js loaders.
+const ScansPage = lazy(() => import('../features/scans/ScansPage'))
 
 // Try again only when the server couldn't be reached or failed. A 404 or 403 won't change.
 function shouldRetry(failureCount: number, error: Error) {
@@ -107,6 +109,7 @@ function StaffRoutes() {
       </Route>
       {/* The chart needs the whole screen, so it stays outside the workspace. */}
       <Route path="patients/:id/chart" element={<ChartPage />} />
+      <Route path="patients/:id/scans/:scanId?" element={<ScansPage />} />
       <Route path="account" element={<AccountPage />} />
       {/* Admin-only screens: for everyone else these paths fall through to Today. */}
       {user.role === 'ADMIN' && (

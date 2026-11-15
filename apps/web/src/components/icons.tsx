@@ -200,3 +200,32 @@ export const ExternalIcon = (props: IconProps) => (
     <path d="M11.5 3.5h5v5M16.5 3.5 9.5 10.5M14.5 11.5v4a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h4" />
   </Icon>
 )
+
+/** 3D scans: a box seen from a corner. */
+export const CubeIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="m10 2.75 6.25 3.5v7.5L10 17.25l-6.25-3.5v-7.5L10 2.75Z" />
+    <path d="m3.75 6.25 6.25 3.5 6.25-3.5M10 9.75v7.5" />
+  </Icon>
+)
+
+/** Upload: an arrow up out of a tray. */
+export const UploadIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M10 13V3.75M6.5 7 10 3.5 13.5 7M3.75 12.5v3a1 1 0 0 0 1 1h10.5a1 1 0 0 0 1-1v-3" />
+  </Icon>
+)
+
+/** Fullscreen: four corners. */
+export const FullscreenIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M3.75 7.5v-3a.75.75 0 0 1 .75-.75h3M12.5 3.75h3a.75.75 0 0 1 .75.75v3M16.25 12.5v3a.75.75 0 0 1-.75.75h-3M7.5 16.25h-3a.75.75 0 0 1-.75-.75v-3" />
+  </Icon>
+)
+
+/** Reset the view: an arrow turning back. */
+export const ResetViewIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4.5 10a5.5 5.5 0 1 0 1.8-4.07M4 3.75v3h3" />
+  </Icon>
+)

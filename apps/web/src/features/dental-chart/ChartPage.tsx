@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ErrorBox } from '../../components/ErrorBox'
-import { ArrowLeftIcon } from '../../components/icons'
+import { ArrowLeftIcon, CubeIcon } from '../../components/icons'
 import { errorMessage } from '../../lib/api'
 import { ageLabel, fullName } from '../../lib/format'
 import { useDocumentTitle } from '../../lib/useDocumentTitle'
@@ -94,6 +94,9 @@ export default function ChartPage() {
               <div className="h-11 w-64 rounded bg-white/10" aria-busy="true" />
             )}
           </div>
+          <Link to={`/app/patients/${id}/scans`} className="inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-neutral-400 outline-white hover:bg-white/10 hover:text-white focus-visible:outline-2">
+            <CubeIcon className="size-4" /> 3D scans
+          </Link>
           <div className="flex rounded-md border border-white/20 p-0.5" role="group" aria-label="Chart view">
             {(
               [

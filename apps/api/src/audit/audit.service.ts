@@ -40,6 +40,9 @@ const ROUTINE: AuditAction[] = ['PATIENT_LISTED', 'APPOINTMENT_LISTED', 'APPOINT
 const REPEATABLE: AuditAction[] = ['PATIENT_VIEWED', 'CHART_VIEWED'];
 const REPEAT_WINDOW_MS = 60_000;
 
+/** Lines about a scan file: the line's entityId is the scan, and its metadata names the patient. */
+const SCAN_ACTIONS = new Set<AuditAction>(['SCAN_UPLOADED', 'SCAN_VIEWED', 'SCAN_WITHDRAWN', 'SCAN_PINS_UPDATED']);
+
 const PATIENT_ACTIONS = new Set<AuditAction>([
   'PATIENT_CREATED',
   'PATIENT_LISTED',
@@ -108,7 +111,7 @@ export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
   list(user: AuthenticatedUser, query: ListAuditLogsQuery) {
-    const { page, limit, actions, from, to, excludeRoutine, action, ...filters } = query;
+    const { page, limit, actions, from, to, excludeRoutine, action, entityId, ...filters } = query;
     return this.prisma.$transaction(async (tx) => {
       // Prisma ignores filters left undefined, so each one only applies when it was sent.
       let allowed: AuditAction[] | undefined = actions;
@@ -118,6 +121,18 @@ export class AuditService {
       }
       const where = {
         ...filters,
+        // A patient's history also holds the lines about their scans, which name the scan itself.
+        ...(entityId
+          ? {
+              OR: [
+                { entityId },
+                {
+                  action: { in: [...SCAN_ACTIONS] },
+                  metadata: { path: ['patientId'], equals: entityId },
+                },
+              ],
+            }
+          : {}),
         action: allowed ? { in: allowed } : undefined,
         createdAt:
           from || to
@@ -152,12 +167,25 @@ export class AuditService {
       const patientIds = idsFor(PATIENT_ACTIONS);
       const appointmentIds = idsFor(APPOINTMENT_ACTIONS);
       const staffIds = idsFor(STAFF_ACTIONS);
+      const scanIds = idsFor(SCAN_ACTIONS);
       const accountIds = idsFor(ACCOUNT_ACTIONS);
 
       const patients = new Map<string, string>();
       const appointments = new Map<string, { name: string; startsAt: Date }>();
       const staff = new Map<string, string>();
       const accounts = new Map<string, string>();
+      // A scan's line shows the patient it belongs to, like the chart's lines do.
+      const scanPatients = new Map<string, { id: string; name: string }>();
+      if (scanIds.length > 0) {
+        const found = await tx.patientScan.findMany({
+          where: { id: { in: scanIds } },
+          select: {
+            id: true,
+            patient: { select: { id: true, firstName: true, middleName: true, lastName: true, suffix: true } },
+          },
+        });
+        for (const s of found) scanPatients.set(s.id, { id: s.patient.id, name: fullName(s.patient) });
+      }
       if (accountIds.length > 0) {
         const found = await tx.patientAccount.findMany({
           where: { id: { in: accountIds } },
@@ -202,6 +230,10 @@ export class AuditService {
         if (PATIENT_ACTIONS.has(row.action)) {
           const name = patients.get(id);
           return name ? { kind: 'patient', id, name } : null;
+        }
+        if (SCAN_ACTIONS.has(row.action)) {
+          const found = scanPatients.get(id);
+          return found ? { kind: 'patient', ...found } : null;
         }
         if (APPOINTMENT_ACTIONS.has(row.action)) {
           const found = appointments.get(id);

@@ -62,8 +62,8 @@ export function currentTeeth(records: ChartRecord[]) {
 }
 
 /** Opening a chart is logged as a look at the patient's record, so it isn't refetched needlessly. */
-export function useChart(patientId: string) {
-  return useQuery({ queryKey: chartKey(patientId), queryFn: () => api<Chart>(`/patients/${patientId}/chart`) })
+export function useChart(patientId: string, enabled = true) {
+  return useQuery({ queryKey: chartKey(patientId), queryFn: () => api<Chart>(`/patients/${patientId}/chart`), enabled })
 }
 
 /**

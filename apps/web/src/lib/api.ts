@@ -21,6 +21,11 @@ export function setSessionEndedHandler(handler: () => void) {
   onSessionEnded = handler
 }
 
+/** For requests made outside `api` (such as an upload with progress) that got a 401. */
+export function notifySessionEnded() {
+  onSessionEnded?.()
+}
+
 type ApiOptions = Omit<RequestInit, 'body'> & { json?: unknown }
 
 /**

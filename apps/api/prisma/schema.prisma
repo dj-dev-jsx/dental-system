@@ -50,6 +50,12 @@ enum AuditAction {
   CHART_VIEWED
   TOOTH_RECORDED
   TOOTH_CORRECTED
+  // 3D scan files on a patient record. The line names the scan (entityId) and its patient (metadata).
+  SCAN_UPLOADED
+  SCAN_VIEWED
+  SCAN_WITHDRAWN
+  // The tooth pins placed on a scan were replaced. metadata: { patientId, count, added, removed, moved }.
+  SCAN_PINS_UPDATED
   STAFF_CREATED
   STAFF_UPDATED
   STAFF_PASSWORD_RESET
@@ -148,6 +154,9 @@ model User {
   auditLogs             AuditLog[]
   appointments          Appointment[]
   toothRecords          ToothRecord[]
+  scansUploaded         PatientScan[]    @relation("ScanUploader")
+  scansWithdrawn        PatientScan[]    @relation("ScanWithdrawer")
+  scanToothPins         ScanToothPin[]
   linkedPatientAccounts PatientAccount[]
 
   @@map("users")
@@ -191,6 +200,7 @@ model Patient {
 
   appointments  Appointment[]
   toothRecords  ToothRecord[]
+  scans         PatientScan[]
   // The online booking account staff linked to this record, if any.
   onlineAccount PatientAccount?
 
@@ -377,4 +387,66 @@ model ToothRecord {
   @@unique([patientId, tooth, correctsId])
   @@index([patientId, tooth, recordedAt])
   @@map("tooth_records")
+}
+
+// The file format a scanner exported. Checked against the file's content on upload.
+enum ScanFormat {
+  STL
+  PLY
+  OBJ
+}
+
+// A 3D file from the intraoral scanner, attached to a patient. The file itself lives in file
+// storage (storage_key); this row says what it is and keeps its SHA-256 so a changed file shows.
+// Permanent, like chart entries: the API's login can add rows and can only fill in the
+// withdrawn_* columns (a column-level GRANT in add_patient_scans), never edit or delete.
+// A wrong upload is withdrawn with a reason; the row and file stay.
+model PatientScan {
+  id             String     @id @default(uuid(7)) @db.Uuid
+  patientId      String     @map("patient_id") @db.Uuid
+  title          String     @db.VarChar(100)
+  note           String?    @db.VarChar(500)
+  format         ScanFormat
+  // The name it had on the dentist's computer, cleaned up. Never used as a path.
+  fileName       String     @map("file_name") @db.VarChar(200)
+  sizeBytes      Int        @map("size_bytes")
+  sha256         String     @db.Char(64)
+  // Random name in file storage, never made from anything the user typed.
+  storageKey     String     @unique @map("storage_key") @db.VarChar(64)
+  scannedOn      DateTime   @map("scanned_on") @db.Date
+  uploadedById   String     @map("uploaded_by_id") @db.Uuid
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  withdrawnAt    DateTime?  @map("withdrawn_at") @db.Timestamptz(3)
+  withdrawnById  String?    @map("withdrawn_by_id") @db.Uuid
+  withdrawReason String?    @map("withdraw_reason") @db.VarChar(500)
+
+  patient     Patient @relation(fields: [patientId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  uploadedBy  User    @relation("ScanUploader", fields: [uploadedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  withdrawnBy User?   @relation("ScanWithdrawer", fields: [withdrawnById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  toothPins ScanToothPin[]
+
+  @@index([patientId, scannedOn(sort: Desc), createdAt(sort: Desc)])
+  @@map("patient_scans")
+}
+
+// Where a dentist marked each tooth on a scan: one point per tooth, in the scan file's own
+// coordinates. A labelling aid, not a medical record: the whole set is replaced when the pins are
+// edited, and the history lives in the audit log (SCAN_PINS_UPDATED). Findings still go to
+// tooth_records by tooth number.
+model ScanToothPin {
+  scanId     String   @map("scan_id") @db.Uuid
+  // FDI number, "11" to "48" (a check in the add_scan_tooth_pins migration).
+  tooth      String   @db.VarChar(2)
+  x          Float
+  y          Float
+  z          Float
+  placedById String   @map("placed_by_id") @db.Uuid
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  scan     PatientScan @relation(fields: [scanId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  placedBy User        @relation(fields: [placedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([scanId, tooth])
+  @@map("scan_tooth_pins")
 }
