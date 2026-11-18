@@ -29,7 +29,7 @@ export function ScanList({ patientId, scans, selectedId, search }: { patientId: 
                 Uploaded by {scan.uploadedBy.firstName} {scan.uploadedBy.lastName}
               </span>
               <span className="mt-0.5 block text-sm text-neutral-500">
-                {scan.pinCount > 0 ? <>Teeth marked: <span className="tabular-nums">{scan.pinCount}</span></> : 'Teeth not marked yet'}
+                {scan.pinCount > 0 ? <>Teeth checked: <span className="tabular-nums">{scan.pinCount}</span></> : 'Teeth not checked yet'}
               </span>
             </Link>
           </li>

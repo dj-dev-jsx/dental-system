@@ -56,6 +56,7 @@ enum AuditAction {
   SCAN_WITHDRAWN
   // The tooth pins placed on a scan were replaced. metadata: { patientId, count, added, removed, moved }.
   SCAN_PINS_UPDATED
+  SCAN_VIEW_SETTINGS_UPDATED
   STAFF_CREATED
   STAFF_UPDATED
   STAFF_PASSWORD_RESET
@@ -154,9 +155,10 @@ model User {
   auditLogs             AuditLog[]
   appointments          Appointment[]
   toothRecords          ToothRecord[]
-  scansUploaded         PatientScan[]    @relation("ScanUploader")
-  scansWithdrawn        PatientScan[]    @relation("ScanWithdrawer")
+  scansUploaded         PatientScan[]      @relation("ScanUploader")
+  scansWithdrawn        PatientScan[]      @relation("ScanWithdrawer")
   scanToothPins         ScanToothPin[]
+  scanViewSettings      ScanViewSettings[]
   linkedPatientAccounts PatientAccount[]
 
   @@map("users")
@@ -424,7 +426,8 @@ model PatientScan {
   uploadedBy  User    @relation("ScanUploader", fields: [uploadedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
   withdrawnBy User?   @relation("ScanWithdrawer", fields: [withdrawnById], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
-  toothPins ScanToothPin[]
+  toothPins    ScanToothPin[]
+  viewSettings ScanViewSettings?
 
   @@index([patientId, scannedOn(sort: Desc), createdAt(sort: Desc)])
   @@map("patient_scans")
@@ -441,6 +444,11 @@ model ScanToothPin {
   x          Float
   y          Float
   z          Float
+  // Where the tooth's crown meets the gum on the cheek side, when known (from the automatic
+  // check), in the same coordinates: the scan's gums are hidden down to it. All three or none.
+  neckX      Float?   @map("neck_x")
+  neckY      Float?   @map("neck_y")
+  neckZ      Float?   @map("neck_z")
   placedById String   @map("placed_by_id") @db.Uuid
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -449,4 +457,36 @@ model ScanToothPin {
 
   @@id([scanId, tooth])
   @@map("scan_tooth_pins")
+}
+
+// How a scan is shown when it opens, chosen by a dentist so everyone sees it the same way: on
+// its own or placed in the standard skull, and whether its gums are hidden and how. Display
+// only: the uploaded file is never changed. Changes are in the audit log (SCAN_VIEW_SETTINGS_UPDATED).
+model ScanViewSettings {
+  scanId            String     @id @map("scan_id") @db.Uuid
+  view              ScanView   @default(SCAN_ONLY)
+  hideGums          Boolean    @default(false) @map("hide_gums")
+  gumMethod         GumMethod? @map("gum_method")
+  // How far below each tooth's pin the gum line is cut, in mm (0 to 12, a check in the migration).
+  gumLineMm         Float?     @map("gum_line_mm") @db.Real
+  // How eagerly pink is taken for gum on a colour scan, 0 to 100.
+  colourSensitivity Float?     @map("colour_sensitivity") @db.Real
+  updatedById       String     @map("updated_by_id") @db.Uuid
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  scan      PatientScan @relation(fields: [scanId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  updatedBy User        @relation(fields: [updatedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("scan_view_settings")
+}
+
+enum ScanView {
+  SCAN_ONLY
+  IN_SKULL
+}
+
+// Hiding the gums: by the file's colours (pink is gum), or by the tooth pins and a gum line.
+enum GumMethod {
+  COLOUR
+  PINS
 }

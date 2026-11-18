@@ -8,6 +8,7 @@ import {
   HemisphereLight,
   Mesh,
   MeshStandardMaterial,
+  type Object3D,
   PerspectiveCamera,
   Raycaster,
   Vector2,
@@ -56,6 +57,11 @@ export class ScanViewer {
   private showFileColors = true
   private raycaster = new Raycaster()
   private home = { position: new Vector3(0, 0.7, 3.4), target: new Vector3() }
+  private homeView: CameraState | null = null
+  /** The file's own triangles; `visible` is the subset drawn while gums are hidden. */
+  private fullIndex: BufferAttribute | null = null
+  private overlay: Object3D | null = null
+  private visible: BufferAttribute | null = null
 
   private container: HTMLElement
 
@@ -194,13 +200,18 @@ export class ScanViewer {
 
   setMesh(data: ParsedMesh) {
     const geometry = new BufferGeometry()
-    geometry.setAttribute('position', new BufferAttribute(data.positions, 3))
+    this.filePositions = new BufferAttribute(data.positions, 3)
+    this.shownPositions = null
+    geometry.setAttribute('position', this.filePositions)
     geometry.setAttribute('normal', new BufferAttribute(data.normals, 3))
     if (data.colors) {
       this.fileColors = new BufferAttribute(data.colors, 3)
       geometry.setAttribute('color', this.fileColors)
     }
-    if (data.index) geometry.setIndex(new BufferAttribute(data.index, 1))
+    if (data.index) {
+      this.fullIndex = new BufferAttribute(data.index, 1)
+      geometry.setIndex(this.fullIndex)
+    }
     geometry.computeBoundingSphere()
     this.geometry = geometry
     this.heavy = data.triangles > HEAVY_TRIANGLES
@@ -227,18 +238,89 @@ export class ScanViewer {
     const geometry = this.geometry
     if (!geometry) return
     this.material.wireframe = this.wireframe
-    const colours = this.shading && !this.wireframe ? this.shading : this.showFileColors && !this.wireframe ? this.fileColors : null
+    let colours = this.shading && !this.wireframe ? this.shading : this.showFileColors && !this.wireframe ? this.fileColors : null
+    const collar = this.collar && !this.wireframe ? this.collar : null
+    if (collar) colours = this.collared(colours, collar)
     if (colours) geometry.setAttribute('color', colours)
     else geometry.deleteAttribute('color')
     this.material.vertexColors = Boolean(colours)
-    this.material.color.set(this.wireframe || this.shading ? 0xffffff : 0xdedede)
+    this.material.color.set(this.wireframe || this.shading || collar ? 0xffffff : 0xdedede)
     this.material.needsUpdate = true
     this.draw()
   }
 
-  /** The scan's points, in viewer coordinates (for working out which tooth each belongs to). */
+  private collar: { values: Float32Array; from: number; to: number; colour: Color } | null = null
+  private collarColours: BufferAttribute | null = null
+  private static readonly SCAN_GREY = new Color(0xdedede)
+
+  /**
+   * Blends the surface toward `colour` as `values` (one per vertex) fall from `to` to `from`:
+   * where the scan's cut crowns run into the standard gum, so the edge melts into it instead of
+   * showing as a hard cut. Display only; null takes it off.
+   */
+  setCollar(values: Float32Array | null, from = 0, to = 1, colour = '#c99aa0') {
+    this.collar = values ? { values, from, to, colour: new Color(colour) } : null
+    this.refreshMaterial()
+  }
+
+  private collared(base: BufferAttribute | null, collar: NonNullable<ScanViewer['collar']>): BufferAttribute {
+    const count = collar.values.length
+    if (!this.collarColours || this.collarColours.count !== count) this.collarColours = new BufferAttribute(new Float32Array(count * 3), 3)
+    const out = this.collarColours.array as Float32Array
+    const source = base?.array as Float32Array | undefined
+    const grey = ScanViewer.SCAN_GREY
+    const { r, g, b } = collar.colour
+    const span = collar.to - collar.from
+    for (let v = 0; v < count; v++) {
+      const br = source ? source[v * 3] : grey.r
+      const bg = source ? source[v * 3 + 1] : grey.g
+      const bb = source ? source[v * 3 + 2] : grey.b
+      const t = (collar.values[v] - collar.from) / span
+      const k = t >= 1 || !(t === t) ? 0 : t <= 0 ? 0.9 : 0.9 * (1 - t) * (1 - t)
+      out[v * 3] = br + (r - br) * k
+      out[v * 3 + 1] = bg + (g - bg) * k
+      out[v * 3 + 2] = bb + (b - bb) * k
+    }
+    this.collarColours.needsUpdate = true
+    return this.collarColours
+  }
+
+  /** The scan's points, in viewer coordinates (for working out which tooth each belongs to): never the display-only moves. */
   get positions(): Float32Array | null {
-    return (this.geometry?.getAttribute('position').array as Float32Array | undefined) ?? null
+    return (this.filePositions?.array as Float32Array | undefined) ?? null
+  }
+
+  private filePositions: BufferAttribute | null = null
+  private shownPositions: BufferAttribute | null = null
+
+  /**
+   * Draws some points a little moved (display only: the cut edge smoothed after hiding the gums);
+   * null draws them where the file has them again.
+   */
+  setEdgeShift(shift: { indices: Uint32Array; positions: Float32Array } | null) {
+    const geometry = this.geometry
+    const base = this.filePositions
+    if (!geometry || !base) return
+    if (!shift) {
+      if (geometry.getAttribute('position') !== base) {
+        geometry.setAttribute('position', base)
+        this.draw()
+      }
+      return
+    }
+    const source = base.array as Float32Array
+    if (!this.shownPositions || this.shownPositions.count !== base.count) this.shownPositions = new BufferAttribute(new Float32Array(source.length), 3)
+    const out = this.shownPositions.array as Float32Array
+    out.set(source)
+    for (let i = 0; i < shift.indices.length; i++) {
+      const v = shift.indices[i] * 3
+      out[v] = shift.positions[i * 3]
+      out[v + 1] = shift.positions[i * 3 + 1]
+      out[v + 2] = shift.positions[i * 3 + 2]
+    }
+    this.shownPositions.needsUpdate = true
+    geometry.setAttribute('position', this.shownPositions)
+    this.draw()
   }
 
   /**
@@ -267,6 +349,66 @@ export class ScanViewer {
     this.refreshMaterial()
   }
 
+  /** The scan's surface directions per vertex, in viewer coordinates. */
+  get normals(): Float32Array | null {
+    return (this.geometry?.getAttribute('normal').array as Float32Array | undefined) ?? null
+  }
+
+  /** The file's own vertex colours (linear RGB), or null when it has none. */
+  get colors(): Float32Array | null {
+    return (this.fileColors?.array as Float32Array | undefined) ?? null
+  }
+
+  /** The file's triangles as vertex numbers, or null when every three vertices are one triangle. */
+  get triangleIndex(): Uint32Array | null {
+    return (this.fullIndex?.array as Uint32Array | undefined) ?? null
+  }
+
+  /**
+   * Draws only some of the triangles: `write` fills the array it is given with vertex numbers,
+   * three per triangle, and returns how many it wrote. Null draws them all again. Only what is
+   * drawn changes: the scan's points stay as they are. One buffer is reused for every change.
+   */
+  setVisibleTriangles(write: ((out: Uint32Array) => number) | null) {
+    const geometry = this.geometry
+    if (!geometry) return
+    if (!write) {
+      geometry.setIndex(this.fullIndex)
+      geometry.setDrawRange(0, Infinity)
+      this.draw()
+      return
+    }
+    const size = this.fullIndex ? this.fullIndex.count : geometry.getAttribute('position').count - (geometry.getAttribute('position').count % 3)
+    if (!this.visible || this.visible.count !== size) this.visible = new BufferAttribute(new Uint32Array(size), 1)
+    const count = write(this.visible.array as Uint32Array)
+    this.visible.clearUpdateRanges()
+    this.visible.addUpdateRange(0, count)
+    this.visible.needsUpdate = true
+    geometry.setIndex(this.visible)
+    geometry.setDrawRange(0, count)
+    this.draw()
+  }
+
+  /**
+   * Something drawn around the scan, like the standard skull (null takes it away). It is only
+   * context: clicks still pick the scan alone.
+   */
+  setOverlay(object: Object3D | null) {
+    if (this.overlay) this.scene.remove(this.overlay)
+    this.overlay = object
+    if (object) this.scene.add(object)
+    // The skull is several times the scan's size: allow zooming out far enough to see it whole.
+    this.controls.maxDistance = object ? 40 : 12
+    this.camera.far = object ? 150 : 50
+    this.camera.updateProjectionMatrix()
+    this.draw()
+  }
+
+  /** Where Reset view goes; null is the default front view. */
+  setHome(view: CameraState | null) {
+    this.homeView = view
+  }
+
   /** The point on the scan's surface under a spot on the screen, in viewer coordinates. */
   pick(clientX: number, clientY: number): Vec3 | null {
     if (!this.mesh) return null
@@ -275,6 +417,28 @@ export class ScanViewer {
     this.raycaster.setFromCamera(ndc, this.camera)
     const hit = this.raycaster.intersectObject(this.mesh, false)[0]
     return hit ? [hit.point.x, hit.point.y, hit.point.z] : null
+  }
+
+  /**
+   * What is under a spot on the screen: the point on the scan (and how far along the ray), and
+   * the nearest part of the overlay that names a tooth (a standard tooth around the scan).
+   */
+  pickAll(clientX: number, clientY: number): { scan: Vec3 | null; scanDistance: number; tooth: string | null; toothDistance: number } {
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    const ndc = new Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
+    this.raycaster.setFromCamera(ndc, this.camera)
+    const hit = this.mesh ? this.raycaster.intersectObject(this.mesh, false)[0] : undefined
+    const teeth: Object3D[] = []
+    this.overlay?.traverse((object) => {
+      if (object.userData.tooth) teeth.push(object)
+    })
+    const tooth = teeth.length > 0 ? this.raycaster.intersectObjects(teeth, false)[0] : undefined
+    return {
+      scan: hit ? [hit.point.x, hit.point.y, hit.point.z] : null,
+      scanDistance: hit?.distance ?? Infinity,
+      tooth: (tooth?.object.userData.tooth as string | undefined) ?? null,
+      toothDistance: tooth?.distance ?? Infinity,
+    }
   }
 
   /** Where a point is on the canvas, in pixels from its top left; null when it is behind the camera. */
@@ -308,11 +472,13 @@ export class ScanViewer {
   }
 
   resetView() {
-    this.setCamera({
-      position: [this.home.position.x, this.home.position.y, this.home.position.z],
-      target: [0, 0, 0],
-      up: [0, 1, 0],
-    })
+    this.setCamera(
+      this.homeView ?? {
+        position: [this.home.position.x, this.home.position.y, this.home.position.z],
+        target: [0, 0, 0],
+        up: [0, 1, 0],
+      },
+    )
     this.listeners.forEach((listener) => listener())
   }
 
@@ -355,8 +521,14 @@ export class ScanViewer {
     this.controls.dispose()
     this.renderer.domElement.removeEventListener('webglcontextlost', this.onLost)
     if (this.mesh) this.scene.remove(this.mesh)
+    if (this.overlay) this.scene.remove(this.overlay)
+    this.overlay = null
+    this.fullIndex = null
+    this.visible = null
     this.geometry?.dispose()
     this.shading = null
+    this.collar = null
+    this.collarColours = null
     this.fileColors = null
     this.material.dispose()
     this.renderer.dispose()

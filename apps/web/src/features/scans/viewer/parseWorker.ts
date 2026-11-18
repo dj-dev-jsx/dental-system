@@ -22,6 +22,29 @@ function toFloat3(attribute: BufferAttribute): Float32Array {
   return out
 }
 
+/** Below this spread (0-1, per channel) a file's colours are one flat colour, not the scan's. */
+const FLAT_COLOURS = 0.04
+
+/**
+ * The file's vertex colours, or nothing when they carry no information: some exporters write one
+ * flat grey for every vertex, which would only darken the teeth. Those scans are shown in the
+ * same light grey as a file without colours.
+ */
+function meaningful(colours: BufferAttribute | undefined): BufferAttribute | undefined {
+  if (!colours) return undefined
+  const lo = [Infinity, Infinity, Infinity]
+  const hi = [-Infinity, -Infinity, -Infinity]
+  const step = Math.max(1, Math.floor(colours.count / 200_000))
+  for (let i = 0; i < colours.count; i += step) {
+    for (let k = 0; k < 3; k++) {
+      const v = colours.getComponent(i, k)
+      if (v < lo[k]) lo[k] = v
+      if (v > hi[k]) hi[k] = v
+    }
+  }
+  return Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) < FLAT_COLOURS ? undefined : colours
+}
+
 function parseObj(buffer: ArrayBuffer): BufferGeometry {
   const group = new OBJLoader().parse(new TextDecoder().decode(buffer))
   const geometries: BufferGeometry[] = []
@@ -76,7 +99,7 @@ function build(request: ParseRequest): { mesh: ParsedMesh; transfer: Transferabl
     positions[i + 2] = (positions[i + 2] - cz) * k
   }
 
-  const colorAttr = geometry.getAttribute('color') as BufferAttribute | undefined
+  const colorAttr = meaningful(geometry.getAttribute('color') as BufferAttribute | undefined)
   let out = new BufferGeometry()
   out.setAttribute('position', new BufferAttribute(positions, 3))
   if (colorAttr) out.setAttribute('color', new BufferAttribute(toFloat3(colorAttr), 3))

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, notifySessionEnded } from '../../lib/api'
-import type { Scan, ScanInput, ScanPin, ScanPins } from './types'
+import type { Scan, ScanInput, ScanPin, ScanPins, ScanViewSettings, ScanViewSettingsInput } from './types'
 
 // Nothing here imports three.js, so the patient record can use it without loading the viewer.
 
@@ -33,6 +33,29 @@ export function useSaveScanPins(patientId: string, scanId: string) {
       client.setQueryData(pinsKey(patientId, scanId), saved)
       client.setQueryData<Scan[]>(key(patientId), (old) => old?.map((s) => (s.id === scanId ? { ...s, pinCount: saved.items.length } : s)))
     },
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 409) void client.invalidateQueries({ queryKey: key(patientId) })
+    },
+  })
+}
+
+const viewKey = (patientId: string, scanId: string) => ['scans', patientId, 'view', scanId] as const
+
+/** How the scan is shown when it opens. Anyone on staff can read it. */
+export function useScanViewSettings(patientId: string, scanId: string) {
+  return useQuery({
+    queryKey: viewKey(patientId, scanId),
+    queryFn: () => api<ScanViewSettings>(`/patients/${patientId}/scans/${scanId}/view-settings`),
+  })
+}
+
+/** Saves how the scan is shown, for everyone (dentists and admins). */
+export function useSaveScanViewSettings(patientId: string, scanId: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (settings: ScanViewSettingsInput) =>
+      api<ScanViewSettings>(`/patients/${patientId}/scans/${scanId}/view-settings`, { method: 'PUT', json: settings }),
+    onSuccess: (saved) => client.setQueryData(viewKey(patientId, scanId), saved),
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409) void client.invalidateQueries({ queryKey: key(patientId) })
     },

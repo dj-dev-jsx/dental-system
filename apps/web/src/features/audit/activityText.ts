@@ -59,6 +59,11 @@ const SENTENCES: Record<string, [string, string]> = {
   APPOINTMENT_CANCELLED_BY_PATIENT: ['cancelled online the appointment of', 'cancelled an appointment online'],
   PATIENT_ACCOUNT_LINKED: ['linked an online booking account to the record of', 'linked an online booking account'],
   PATIENT_ACCOUNT_UNLINKED: ['unlinked the online booking account from the record of', 'unlinked an online booking account'],
+  SCAN_UPLOADED: ['uploaded a 3D scan for', 'uploaded a 3D scan'],
+  SCAN_VIEWED: ['opened a 3D scan of', 'opened a 3D scan'],
+  SCAN_WITHDRAWN: ['withdrew a 3D scan of', 'withdrew a 3D scan'],
+  SCAN_PINS_UPDATED: ['marked the teeth on a 3D scan of', 'marked the teeth on a 3D scan'],
+  SCAN_VIEW_SETTINGS_UPDATED: ['changed how a 3D scan is shown for', 'changed how a 3D scan is shown'],
 }
 
 /** Lines about the actor's own account: the subject would only repeat their name. */
@@ -80,6 +85,7 @@ export function subjectLink(entry: ActivityEntry) {
   if (subject.kind === 'patientAccount') return null
   if (subject.kind === 'appointment') return `/app/appointments/${subject.id}`
   if (entry.action === 'CHART_VIEWED' || entry.action.startsWith('TOOTH_')) return `/app/patients/${subject.id}/chart`
+  if (entry.action.startsWith('SCAN_') && entry.entityId) return `/app/patients/${subject.id}/scans/${entry.entityId}`
   return `/app/patients/${subject.id}`
 }
 

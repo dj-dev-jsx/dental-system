@@ -9,8 +9,7 @@ import { scanErrorMessage } from './errors'
 import { formatBytes, type Scan } from './types'
 
 /** What is known about the open scan, and (for dentists and admins) the way to withdraw it. */
-export function ScanDetails({ patientId, scan, canWithdraw, onMarkTeeth }: { patientId: string; scan: Scan; canWithdraw: boolean; onMarkTeeth?: () => void }) {
-  const canMark = canWithdraw && !scan.withdrawn
+export function ScanDetails({ patientId, scan, canWithdraw }: { patientId: string; scan: Scan; canWithdraw: boolean }) {
   return (
     <section aria-label="Scan details" className="px-5 py-5 lg:px-6">
       <h2 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xl font-bold tracking-[-0.02em] break-words">
@@ -36,29 +35,19 @@ export function ScanDetails({ patientId, scan, canWithdraw, onMarkTeeth }: { pat
         <Row label="Format and size">
           {scan.format} · <span className="tabular-nums">{formatBytes(scan.sizeBytes)}</span>
         </Row>
-        <Row label="Teeth marked">
+        <Row label="Teeth">
           {scan.pinCount > 0 ? (
-            <span className="tabular-nums">{scan.pinCount}</span>
-          ) : canMark ? (
-            'None yet'
+            <>
+              <span className="tabular-nums">{scan.pinCount}</span> checked
+            </>
           ) : (
-            <span className="text-neutral-600">Teeth not marked yet</span>
+            <span className="text-neutral-600">Not checked yet</span>
           )}
         </Row>
         <Row label="Uploaded by">
           {scan.uploadedBy.firstName} {scan.uploadedBy.lastName}, {formatDateTime(scan.createdAt)}
         </Row>
       </dl>
-
-      {canMark && scan.pinCount === 0 && onMarkTeeth && (
-        <div className="mt-4 rounded-md bg-neutral-100 px-3.5 py-3">
-          <p className="text-sm font-semibold">Mark the teeth on this scan</p>
-          <p className="mt-0.5 text-sm/6 text-neutral-600">Place one pin on each tooth, about a minute per arch. Then clicking a tooth on the scan opens its chart.</p>
-          <button type="button" onClick={onMarkTeeth} className={`${buttonOnLight} mt-3 h-9 px-4 text-sm`}>
-            Mark teeth
-          </button>
-        </div>
-      )}
 
       {canWithdraw && !scan.withdrawn && <Withdraw patientId={patientId} scan={scan} />}
     </section>

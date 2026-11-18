@@ -57,7 +57,6 @@ export default function ScansPage() {
   const chart = useChart(id, Boolean(selected && selected.pinCount > 0) || marking)
   const pickTooth = useCallback((code: FdiCode | null) => setTeethState((s) => ({ view, tooth: code, marking: s.view === view && s.marking })), [view])
   const setMarking = useCallback((on: boolean) => setTeethState({ view, tooth: null, marking: on }), [view])
-  const markTeeth = useCallback(() => setMarking(true), [setMarking])
   const comparable = items.filter((s) => s.id !== selected?.id && (isAdmin || !s.withdrawn))
 
   // Two views follow each other while "Sync views" is on.
@@ -232,14 +231,14 @@ export default function ScansPage() {
             />
           </div>
         ) : (
-          <PanelBody patientId={id} items={items} selectedId={selected?.id ?? null} search={search} canWrite={canWrite} loading={scans.isPending} onMarkTeeth={canMark ? markTeeth : undefined} />
+          <PanelBody patientId={id} items={items} selectedId={selected?.id ?? null} search={search} canWrite={canWrite} loading={scans.isPending} />
         )}
       </aside>
     </div>
   )
 }
 
-function PanelBody({ patientId, items, selectedId, search, canWrite, loading, onMarkTeeth }: { patientId: string; items: ReturnType<typeof useScans>['data'] & object; selectedId: string | null; search: string; canWrite: boolean; loading: boolean; onMarkTeeth?: () => void }) {
+function PanelBody({ patientId, items, selectedId, search, canWrite, loading }: { patientId: string; items: ReturnType<typeof useScans>['data'] & object; selectedId: string | null; search: string; canWrite: boolean; loading: boolean }) {
   const selected = useMemo(() => items.find((s) => s.id === selectedId) ?? null, [items, selectedId])
   if (loading) {
     return (
@@ -259,7 +258,7 @@ function PanelBody({ patientId, items, selectedId, search, canWrite, loading, on
           </div>
         </div>
       )}
-      {selected && <ScanDetails key={selected.id} patientId={patientId} scan={selected} canWithdraw={canWrite} onMarkTeeth={onMarkTeeth} />}
+      {selected && <ScanDetails key={selected.id} patientId={patientId} scan={selected} canWithdraw={canWrite} />}
       <p className="px-5 py-5 text-sm/6 text-neutral-600 lg:px-6">Scan files are patient health data. Only staff can open them, and every time a scan is opened it is logged.</p>
     </>
   )

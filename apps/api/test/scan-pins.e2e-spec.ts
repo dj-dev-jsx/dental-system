@@ -35,7 +35,7 @@ describe('Scan tooth pins (e2e)', () => {
   const put = (body: unknown, who: UserRole = 'DENTIST', path = pinsOf(maria, scan)) =>
     http().put(path).set('Cookie', cookies[who]).send(body as object);
   const get = (who: UserRole = 'DENTIST', path = pinsOf(maria, scan)) => http().get(path).set('Cookie', cookies[who]);
-  const pin = (tooth: string, x = 1, y = 2, z = 3) => ({ tooth, x, y, z });
+  const pin = (tooth: string, x = 1, y = 2, z = 3) => ({ tooth, x, y, z, neck: null as { x: number; y: number; z: number } | null });
   const pinAudits = () =>
     owner.auditLog.findMany({ where: { action: 'SCAN_PINS_UPDATED' }, orderBy: { createdAt: 'asc' } });
 
@@ -104,6 +104,22 @@ describe('Scan tooth pins (e2e)', () => {
 
     await put({ pins: [] }).expect(200);
     expect((await get().expect(200)).body.items).toEqual([]);
+  });
+
+  it('keeps where each tooth meets the gum, when given, and logs a changed one as moved', async () => {
+    const withNeck = { ...pin('16'), neck: { x: 1, y: 2, z: -5.5 } };
+    const saved = await put({ pins: [withNeck, { tooth: '11', x: 1, y: 2, z: 3 }] }).expect(200);
+    expect(saved.body.items).toEqual([pin('11'), withNeck]);
+    const before = (await pinAudits()).length;
+    await put({ pins: [{ ...withNeck, neck: { x: 1, y: 2, z: -6 } }, pin('11')] }).expect(200);
+    const lines = await pinAudits();
+    expect(lines).toHaveLength(before + 1);
+    expect(lines.at(-1)?.metadata).toMatchObject({ added: [], removed: [], moved: ['16'] });
+    await put({ pins: [] }).expect(200);
+  });
+
+  it('refuses a neck point missing a coordinate', async () => {
+    await put({ pins: [{ ...pin('16'), neck: { x: 1, y: 2 } }] }).expect(400);
   });
 
   it('logs which teeth were added, removed and moved', async () => {

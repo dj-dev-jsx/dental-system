@@ -37,6 +37,8 @@ export const setPinsSchema = z.strictObject({
         x: z.number(),
         y: z.number(),
         z: z.number(),
+        // Where the crown meets the gum on the cheek side, when the automatic check found it.
+        neck: z.strictObject({ x: z.number(), y: z.number(), z: z.number() }).nullable().optional(),
       }),
     )
     .max(32)
@@ -44,3 +46,15 @@ export const setPinsSchema = z.strictObject({
 });
 
 export type SetPinsInput = z.infer<typeof setPinsSchema>;
+
+/** How a scan is shown when it opens. The whole set, replacing what was there. */
+export const viewSettingsSchema = z.strictObject({
+  view: z.enum(['SCAN_ONLY', 'IN_SKULL']),
+  hideGums: z.boolean(),
+  gumMethod: z.enum(['COLOUR', 'PINS']).nullable(),
+  // mm below each tooth's pin; a crown is about 7 to 11 mm tall.
+  gumLineMm: z.number().min(0).max(12).nullable(),
+  colourSensitivity: z.number().min(0).max(100).nullable(),
+});
+
+export type ViewSettingsInput = z.infer<typeof viewSettingsSchema>;

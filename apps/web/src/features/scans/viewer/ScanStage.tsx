@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
-import { FullscreenIcon, ResetViewIcon } from '../../../components/icons'
+import { CheckIcon, ChevronDownIcon, FullscreenIcon, ResetViewIcon } from '../../../components/icons'
 import { formatDate } from '../../../lib/format'
 import { canShow3D } from '../../../lib/webgl'
 import { formatBytes, type Scan } from '../types'
@@ -17,8 +17,11 @@ type Phase =
 
 export type ReadyMesh = Pick<ParsedMesh, 'triangles' | 'dimensions' | 'transform'>
 
-/** What a layer drawn over a ready scan gets: the viewer, the mesh, and a place in the tool row. */
-export type StageLayer = { viewer: ScanViewer; mesh: ReadyMesh; tools: HTMLElement | null }
+/**
+ * What a layer drawn over a ready scan gets: the viewer, the mesh, a place in the tool row for
+ * the main controls, and a place in the More menu for the rest.
+ */
+export type StageLayer = { viewer: ScanViewer; mesh: ReadyMesh; tools: HTMLElement | null; more: HTMLElement | null }
 
 type Props = {
   patientId: string
@@ -42,9 +45,22 @@ const PANEL = 'bg-[radial-gradient(circle_at_50%_46%,#262626_0%,#0a0a0a_72%)]'
 const toolButton =
   'inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-sm font-medium outline-white transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 pointer-coarse:h-11'
 
+/** A line in the More menu: a toggle (with a tick when on) or an action. */
+export const menuItem =
+  'flex h-9 w-full items-center gap-2 rounded px-2.5 text-left text-sm text-neutral-200 outline-white hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 disabled:cursor-not-allowed disabled:text-neutral-600 disabled:hover:bg-transparent pointer-coarse:h-11'
+
+/** The tick column of a menu toggle. */
+export function MenuTick({ on }: { on: boolean }) {
+  return <CheckIcon className={`size-4 shrink-0 ${on ? '' : 'invisible'}`} />
+}
+
 /** One scan on the black stage: loads it, shows progress and problems, and holds the view controls. */
 export function ScanStage({ patientId, scan, isAdmin, caption = false, onViewer, children, hint = true }: Props) {
   const [tools, setTools] = useState<HTMLDivElement | null>(null)
+  const [more, setMore] = useState<HTMLDivElement | null>(null)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement>(null)
+  const [morePanel, setMorePanel] = useState<HTMLDivElement | null>(null)
   const [shown, setShown] = useState<ScanViewer | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -118,6 +134,35 @@ export function ScanStage({ patientId, scan, isAdmin, caption = false, onViewer,
     return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
 
+  // The More menu closes on Esc, on a click outside it, and after an action inside it (toggles
+  // marked data-keep-open leave it open).
+  useEffect(() => {
+    if (!moreOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMoreOpen(false)
+    }
+    const onDown = (e: PointerEvent) => {
+      if (!moreRef.current?.contains(e.target as Node)) setMoreOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('pointerdown', onDown)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('pointerdown', onDown)
+    }
+  }, [moreOpen])
+
+  // Items come from several layers (some through portals), so listen on the element itself.
+  useEffect(() => {
+    if (!morePanel) return
+    const onClick = (e: MouseEvent) => {
+      const item = (e.target as HTMLElement).closest('button')
+      if (item && !item.hasAttribute('data-keep-open')) setMoreOpen(false)
+    }
+    morePanel.addEventListener('click', onClick)
+    return () => morePanel.removeEventListener('click', onClick)
+  }, [morePanel])
+
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) void document.exitFullscreen()
     else void stageRef.current?.requestFullscreen?.()
@@ -164,57 +209,58 @@ export function ScanStage({ patientId, scan, isAdmin, caption = false, onViewer,
       )}
 
       {ready && (
-        <div className="absolute inset-x-2 bottom-2 flex flex-wrap items-center gap-1 sm:inset-x-3 sm:bottom-3">
-          <div className="flex rounded-md border border-white/20 bg-neutral-950/70 p-0.5" role="group" aria-label="Surface">
-            {(
-              [
-                [false, 'Shaded'],
-                [true, 'Wireframe'],
-              ] as const
-            ).map(([value, label]) => (
+        <div className="absolute inset-x-2 bottom-2 sm:inset-x-3 sm:bottom-3">
+          {!caption && hint && (
+            // Above the tools, however many rows they take.
+            <p className="pointer-events-none mb-2 hidden text-center text-xs text-neutral-500 lg:block">Drag to turn · scroll to zoom · right-drag to move</p>
+          )}
+          <div className="flex flex-wrap items-center gap-1">
+            <div ref={setTools} className="contents" />
+            <button type="button" aria-label="Reset view" onClick={() => viewerRef.current?.resetView()} className={`${toolButton} border border-white/20 bg-neutral-950/70 text-neutral-300 hover:text-white`}>
+              <ResetViewIcon className="size-4" /> <span className={compact}>Reset view</span>
+            </button>
+            <div ref={moreRef} className="relative">
               <button
-                key={label}
                 type="button"
-                aria-pressed={wireframe === value}
-                onClick={() => setWireframe(value)}
-                className={`${toolButton} ${wireframe === value ? 'bg-white text-neutral-950' : 'text-neutral-300 hover:text-white'}`}
+                aria-expanded={moreOpen}
+                aria-controls={`more-${scan.id}`}
+                onClick={() => setMoreOpen((on) => !on)}
+                className={`${toolButton} border border-white/20 ${moreOpen ? 'bg-white text-neutral-950' : 'bg-neutral-950/70 text-neutral-300 hover:text-white'}`}
               >
-                {label}
+                More <ChevronDownIcon className={`size-4 transition-transform duration-150 ${moreOpen ? 'rotate-180' : ''}`} />
               </button>
-            ))}
-          </div>
-          {phase.hasColors && (
+              <div
+                ref={setMorePanel}
+                id={`more-${scan.id}`}
+                hidden={!moreOpen}
+                className="absolute bottom-full left-0 z-30 mb-1.5 w-64 max-w-[calc(100vw-1rem)] rounded-md border border-white/20 bg-neutral-950/95 p-1"
+              >
+                <div ref={setMore} className="mb-1 flex flex-col gap-0.5 border-b border-white/10 pb-1 empty:hidden" />
+                <div>
+                  <button type="button" data-keep-open aria-pressed={wireframe} onClick={() => setWireframe((on) => !on)} className={menuItem}>
+                    <MenuTick on={wireframe} /> Wireframe
+                  </button>
+                  {phase.hasColors && (
+                    <button type="button" data-keep-open aria-pressed={colors && !wireframe} disabled={wireframe} onClick={() => setColors((on) => !on)} className={menuItem}>
+                      <MenuTick on={colors && !wireframe} /> Scanner colours
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
             <button
               type="button"
-              aria-pressed={colors}
-              disabled={wireframe}
-              onClick={() => setColors((on) => !on)}
-              className={`${toolButton} border border-white/20 bg-neutral-950/70 disabled:cursor-not-allowed disabled:text-neutral-600 ${colors && !wireframe ? 'bg-white text-neutral-950' : 'text-neutral-300 hover:text-white'}`}
+              onClick={toggleFullscreen}
+              aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+              aria-pressed={fullscreen}
+              className={`${toolButton} ml-auto border border-white/20 bg-neutral-950/70 text-neutral-300 hover:text-white`}
             >
-              Colour
+              <FullscreenIcon className="size-4" /> <span className={compact}>{fullscreen ? 'Exit full screen' : 'Full screen'}</span>
             </button>
-          )}
-          <div ref={setTools} className="contents" />
-          <button type="button" aria-label="Reset view" onClick={() => viewerRef.current?.resetView()} className={`${toolButton} border border-white/20 bg-neutral-950/70 text-neutral-300 hover:text-white`}>
-            <ResetViewIcon className="size-4" /> <span className={compact}>Reset view</span>
-          </button>
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-            aria-pressed={fullscreen}
-            className={`${toolButton} ml-auto border border-white/20 bg-neutral-950/70 text-neutral-300 hover:text-white`}
-          >
-            <FullscreenIcon className="size-4" /> <span className={compact}>{fullscreen ? 'Exit full screen' : 'Full screen'}</span>
-          </button>
+          </div>
         </div>
       )}
-      {ready && shown && children?.({ viewer: shown, mesh: phase.mesh, tools })}
-      {ready && !caption && hint && (
-        <p className="pointer-events-none absolute bottom-14 left-1/2 hidden -translate-x-1/2 text-xs whitespace-nowrap text-neutral-500 lg:block">
-          Drag to turn · scroll to zoom · right-drag to move
-        </p>
-      )}
+      {ready && shown && children?.({ viewer: shown, mesh: phase.mesh, tools, more })}
     </div>
   )
 }

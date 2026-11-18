@@ -21,6 +21,8 @@ import {
   idSchema,
   type SetPinsInput,
   setPinsSchema,
+  type ViewSettingsInput,
+  viewSettingsSchema,
   type WithdrawScanInput,
   withdrawScanSchema,
 } from './scans.schemas.js';
@@ -100,5 +102,27 @@ export class ScansController {
     @Body({ schema: setPinsSchema }) body: SetPinsInput,
   ) {
     return this.scans.setPins(user, patientId, scanId, body);
+  }
+
+  // How the scan is shown when it opens (on its own or in the skull, gums shown or hidden).
+  // Anyone on staff reads it; dentists and admins choose it for everyone.
+  @Get(':scanId/view-settings')
+  @Header('Cache-Control', 'no-store')
+  viewSettings(
+    @Param('patientId', { schema: idSchema }) patientId: string,
+    @Param('scanId', { schema: idSchema }) scanId: string,
+  ) {
+    return this.scans.viewSettings(patientId, scanId);
+  }
+
+  @Roles('DENTIST', 'ADMIN')
+  @Put(':scanId/view-settings')
+  setViewSettings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('patientId', { schema: idSchema }) patientId: string,
+    @Param('scanId', { schema: idSchema }) scanId: string,
+    @Body({ schema: viewSettingsSchema }) body: ViewSettingsInput,
+  ) {
+    return this.scans.setViewSettings(user, patientId, scanId, body);
   }
 }

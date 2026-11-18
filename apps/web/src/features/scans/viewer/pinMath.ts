@@ -6,7 +6,8 @@ import type { ParsedMesh } from './parseTypes'
 
 export type Vec3 = [number, number, number]
 /** A pin while it is on screen: in the viewer's coordinates (centred and scaled). */
-export type ViewPin = { tooth: FdiCode; at: Vec3 }
+/** A pin while it is on screen: in the viewer's coordinates; `neck` is where its crown meets the gum (cheek side), when known. */
+export type ViewPin = { tooth: FdiCode; at: Vec3; neck?: Vec3 | null }
 export type Arch = 'upper' | 'lower' | 'both'
 
 const range = (q: number, from: number, to: number) => {
@@ -46,7 +47,13 @@ export function toView(pin: ScanPin, t: Transform): Vec3 {
 
 export function toFile(pin: ViewPin, t: Transform): ScanPin {
   const [x, y, z] = pin.at
-  return { tooth: pin.tooth, x: x / t.scale + t.centre[0], y: y / t.scale + t.centre[1], z: z / t.scale + t.centre[2] }
+  const back = (v: Vec3) => ({ x: v[0] / t.scale + t.centre[0], y: v[1] / t.scale + t.centre[1], z: v[2] / t.scale + t.centre[2] })
+  return { tooth: pin.tooth, x: x / t.scale + t.centre[0], y: y / t.scale + t.centre[1], z: z / t.scale + t.centre[2], neck: pin.neck ? back(pin.neck) : null }
+}
+
+/** A saved pin's neck point in viewer coordinates, or null. */
+export function neckToView(pin: ScanPin, t: Transform): Vec3 | null {
+  return pin.neck ? toView({ tooth: pin.tooth, ...pin.neck }, t) : null
 }
 
 const dist2 = (a: ArrayLike<number>, b: ArrayLike<number>) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2
@@ -111,6 +118,62 @@ export function regionsOf(positions: Float32Array, pins: ViewPin[]): Int8Array {
       }
     }
     out[v] = best
+  }
+  return out
+}
+
+/**
+ * A view straight onto the biting surfaces (`axis` points from the gums to them), the front
+ * teeth at the top: how a dentist looks at an arch to check its teeth. Viewer coordinates.
+ * `lower` moves the arch down the screen (a share of the distance), to clear a banner above it.
+ */
+export function occlusalView(axis: Vec3, pins: ViewPin[], distance = 3.4, lower = 0) {
+  const n = pins.length || 1
+  const centre = [0, 1, 2].map((k) => pins.reduce((sum, p) => sum + p.at[k], 0) / n) as Vec3
+  const front = pins.filter((p) => p.tooth[1] === '1' || p.tooth[1] === '2')
+  let up: Vec3 = [0, 1, 0]
+  if (front.length > 0) {
+    const f = [0, 1, 2].map((k) => front.reduce((sum, p) => sum + p.at[k], 0) / front.length - centre[k]) as Vec3
+    up = f
+  }
+  // Keep only the part of `up` across the axis.
+  const along = up[0] * axis[0] + up[1] * axis[1] + up[2] * axis[2]
+  up = [up[0] - along * axis[0], up[1] - along * axis[1], up[2] - along * axis[2]]
+  let length = Math.hypot(...up)
+  if (length < 1e-6) {
+    up = Math.abs(axis[1]) < 0.9 ? [0, 1, 0] : [0, 0, -1]
+    const a = up[0] * axis[0] + up[1] * axis[1] + up[2] * axis[2]
+    up = [up[0] - a * axis[0], up[1] - a * axis[1], up[2] - a * axis[2]]
+    length = Math.hypot(...up)
+  }
+  up = [up[0] / length, up[1] / length, up[2] / length]
+  const target = [0, 1, 2].map((k) => centre[k] + up[k] * distance * lower) as Vec3
+  return {
+    position: [target[0] + axis[0] * distance, target[1] + axis[1] * distance, target[2] + axis[2] * distance] as Vec3,
+    target,
+    up,
+  }
+}
+
+/**
+ * The teeth whose outer face turns toward the camera, for showing their numbers: a tooth on the
+ * far side of the arch, seen through the near side, keeps its number hidden. A tooth's face is
+ * taken to point out from the middle of the arch, tipped toward its biting surface (`axis`, gums
+ * to biting surface). All in viewer coordinates.
+ */
+export function teethFacing(pins: ViewPin[], axis: Vec3, camera: Vec3): Set<FdiCode> {
+  const out = new Set<FdiCode>()
+  if (pins.length < 3) return new Set(pins.map((p) => p.tooth))
+  const centre = [0, 1, 2].map((k) => pins.reduce((s, p) => s + p.at[k], 0) / pins.length) as Vec3
+  for (const pin of pins) {
+    const r = [0, 1, 2].map((k) => pin.at[k] - centre[k]) as Vec3
+    const along = r[0] * axis[0] + r[1] * axis[1] + r[2] * axis[2]
+    const out3 = [0, 1, 2].map((k) => r[k] - along * axis[k]) as Vec3
+    const length = Math.hypot(...out3) || 1
+    const face = [0, 1, 2].map((k) => out3[k] / length + 0.6 * axis[k]) as Vec3
+    const look = [0, 1, 2].map((k) => camera[k] - pin.at[k]) as Vec3
+    const cos = (face[0] * look[0] + face[1] * look[1] + face[2] * look[2]) / ((Math.hypot(...face) || 1) * (Math.hypot(...look) || 1))
+    if (cos > -0.4) out.add(pin.tooth)
   }
   return out
 }

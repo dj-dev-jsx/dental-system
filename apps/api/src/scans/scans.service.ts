@@ -17,6 +17,7 @@ import type { SavedScan } from './scan-upload.js';
 import {
   type SetPinsInput,
   uploadScanSchema,
+  type ViewSettingsInput,
   type WithdrawScanInput,
 } from './scans.schemas.js';
 
@@ -25,6 +26,9 @@ const PIN_FIELDS = {
   x: true,
   y: true,
   z: true,
+  neckX: true,
+  neckY: true,
+  neckZ: true,
   updatedAt: true,
   placedBy: { select: { id: true, firstName: true, lastName: true } },
 } satisfies Prisma.ScanToothPinSelect;
@@ -35,10 +39,47 @@ type PinRow = Prisma.ScanToothPinGetPayload<{ select: typeof PIN_FIELDS }>;
 function toPins(rows: PinRow[]) {
   const latest = rows.reduce<PinRow | null>((a, b) => (!a || b.updatedAt > a.updatedAt ? b : a), null);
   return {
-    items: rows.map(({ tooth, x, y, z }) => ({ tooth, x, y, z })),
+    items: rows.map(({ tooth, x, y, z, neckX, neckY, neckZ }) => ({
+      tooth,
+      x,
+      y,
+      z,
+      neck: neckX !== null && neckY !== null && neckZ !== null ? { x: neckX, y: neckY, z: neckZ } : null,
+    })),
     updatedAt: latest ? latest.updatedAt.toISOString() : null,
     updatedBy: latest ? latest.placedBy : null,
   };
+}
+
+const VIEW_FIELDS = {
+  view: true,
+  hideGums: true,
+  gumMethod: true,
+  gumLineMm: true,
+  colourSensitivity: true,
+  updatedAt: true,
+  updatedBy: { select: { id: true, firstName: true, lastName: true } },
+} satisfies Prisma.ScanViewSettingsSelect;
+
+type ViewRow = Prisma.ScanViewSettingsGetPayload<{
+  select: typeof VIEW_FIELDS;
+}>;
+
+/** A scan nobody has set a view for opens on its own, with its gums. */
+function toViewSettings(row: ViewRow | null) {
+  if (!row) {
+    return {
+      view: 'SCAN_ONLY',
+      hideGums: false,
+      gumMethod: null,
+      gumLineMm: null,
+      colourSensitivity: null,
+      updatedAt: null,
+      updatedBy: null,
+    };
+  }
+  const { updatedAt, ...rest } = row;
+  return { ...rest, updatedAt: updatedAt.toISOString() };
 }
 
 const SCAN_FIELDS = {
@@ -244,7 +285,11 @@ export class ScansService {
         input.pins
           .filter((p) => {
             const was = old.get(p.tooth);
-            return was && (was.x !== p.x || was.y !== p.y || was.z !== p.z);
+            const neck = p.neck ?? null;
+            const neckChanged = neck
+              ? was?.neckX !== neck.x || was?.neckY !== neck.y || was?.neckZ !== neck.z
+              : was?.neckX !== null;
+            return was && (was.x !== p.x || was.y !== p.y || was.z !== p.z || neckChanged);
           })
           .map((p) => p.tooth),
       );
@@ -253,7 +298,17 @@ export class ScansService {
         await tx.scanToothPin.deleteMany({ where: { scanId } });
         if (input.pins.length > 0) {
           await tx.scanToothPin.createMany({
-            data: input.pins.map((p) => ({ scanId, tooth: p.tooth, x: p.x, y: p.y, z: p.z, placedById: user.id })),
+            data: input.pins.map((p) => ({
+              scanId,
+              tooth: p.tooth,
+              x: p.x,
+              y: p.y,
+              z: p.z,
+              neckX: p.neck?.x ?? null,
+              neckY: p.neck?.y ?? null,
+              neckZ: p.neck?.z ?? null,
+              placedById: user.id,
+            })),
           });
         }
         await recordAudit(tx, user, 'SCAN_PINS_UPDATED', {
@@ -263,6 +318,87 @@ export class ScansService {
       }
       const rows = await tx.scanToothPin.findMany({ where: { scanId }, select: PIN_FIELDS, orderBy: { tooth: 'asc' } });
       return toPins(rows);
+    });
+  }
+
+  /** How one of this patient's scans is shown when it opens (the defaults when nobody chose). */
+  async viewSettings(patientId: string, scanId: string) {
+    await this.findScan(this.prisma, patientId, scanId);
+    return toViewSettings(
+      await this.prisma.scanViewSettings.findUnique({
+        where: { scanId },
+        select: VIEW_FIELDS,
+      }),
+    );
+  }
+
+  /**
+   * Sets how a scan is shown, for everyone. Display only: the file is never changed. The audit
+   * line has the settings before and after; saving the same settings again logs nothing.
+   */
+  setViewSettings(
+    user: AuthenticatedUser,
+    patientId: string,
+    scanId: string,
+    input: ViewSettingsInput,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const patient = await tx.patient.findUnique({
+        where: { id: patientId },
+        select: { archivedAt: true },
+      });
+      if (!patient) throw new NotFoundException('Patient not found');
+      if (patient.archivedAt) {
+        throw new ConflictException(
+          'This patient is archived. An admin can restore them first.',
+        );
+      }
+      const scan = await this.findScan(tx, patientId, scanId);
+      if (scan.withdrawnAt) throw new ConflictException('SCAN_WITHDRAWN');
+
+      await tx.$executeRaw`SELECT 1 FROM patient_scans WHERE id = ${scan.id}::uuid FOR UPDATE`;
+      const before = await tx.scanViewSettings.findUnique({
+        where: { scanId },
+      });
+      const was = {
+        view: before?.view ?? 'SCAN_ONLY',
+        hideGums: before?.hideGums ?? false,
+        gumMethod: before?.gumMethod ?? null,
+        gumLineMm: before?.gumLineMm ?? null,
+        colourSensitivity: before?.colourSensitivity ?? null,
+      };
+      // REAL keeps about 7 digits: compare what will be stored, not what was sent.
+      const same = (a: unknown, b: unknown) =>
+        typeof a === 'number' && typeof b === 'number'
+          ? Math.fround(a) === Math.fround(b)
+          : a === b;
+      const changed = (Object.keys(was) as (keyof typeof was)[]).filter(
+        (key) => !same(input[key], was[key]),
+      );
+      if (!before || changed.length > 0) {
+        await tx.scanViewSettings.upsert({
+          where: { scanId },
+          create: { scanId, ...input, updatedById: user.id },
+          update: { ...input, updatedById: user.id },
+        });
+      }
+      if (changed.length > 0) {
+        await recordAudit(tx, user, 'SCAN_VIEW_SETTINGS_UPDATED', {
+          entityId: scan.id,
+          metadata: {
+            patientId,
+            changes: Object.fromEntries(
+              changed.map((key) => [key, { from: was[key], to: input[key] }]),
+            ),
+          },
+        });
+      }
+      return toViewSettings(
+        await tx.scanViewSettings.findUnique({
+          where: { scanId },
+          select: VIEW_FIELDS,
+        }),
+      );
     });
   }
 

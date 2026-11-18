@@ -15,6 +15,11 @@ const ACTIONS: Record<string, string> = {
   TOOTH_CORRECTED: 'corrected a chart entry',
   PATIENT_ACCOUNT_LINKED: 'linked an online booking account to the record',
   PATIENT_ACCOUNT_UNLINKED: 'unlinked the online booking account',
+  SCAN_UPLOADED: 'uploaded a 3D scan',
+  SCAN_VIEWED: 'opened a 3D scan',
+  SCAN_WITHDRAWN: 'withdrew a 3D scan',
+  SCAN_PINS_UPDATED: 'marked the teeth on a 3D scan',
+  SCAN_VIEW_SETTINGS_UPDATED: 'changed how a 3D scan is shown',
 }
 
 const FIELDS: Record<string, string> = {

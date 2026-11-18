@@ -21,13 +21,35 @@ export type Scan = {
 }
 
 /** Where a tooth was marked on a scan, in the scan file's own coordinates. */
-export type ScanPin = { tooth: string; x: number; y: number; z: number }
+export type ScanPin = {
+  tooth: string
+  x: number
+  y: number
+  z: number
+  /** Where the crown meets the gum on the cheek side, when the automatic check found it. */
+  neck?: { x: number; y: number; z: number } | null
+}
 
 export type ScanPins = {
   items: ScanPin[]
   updatedAt: string | null
   updatedBy: { id: string; firstName: string; lastName: string } | null
 }
+
+/** How a scan is shown when it opens, chosen by a dentist for everyone. Display only. */
+export type ScanViewSettings = {
+  view: 'SCAN_ONLY' | 'IN_SKULL'
+  hideGums: boolean
+  gumMethod: 'COLOUR' | 'PINS' | null
+  /** mm below each tooth's pin, 0 to 12. */
+  gumLineMm: number | null
+  /** 0 to 100. */
+  colourSensitivity: number | null
+  updatedAt: string | null
+  updatedBy: { id: string; firstName: string; lastName: string } | null
+}
+
+export type ScanViewSettingsInput = Omit<ScanViewSettings, 'updatedAt' | 'updatedBy'>
 
 export type ScanInput = { file: File; title: string; note?: string; scannedOn?: string }
 

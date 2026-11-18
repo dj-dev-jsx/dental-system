@@ -41,7 +41,13 @@ const REPEATABLE: AuditAction[] = ['PATIENT_VIEWED', 'CHART_VIEWED'];
 const REPEAT_WINDOW_MS = 60_000;
 
 /** Lines about a scan file: the line's entityId is the scan, and its metadata names the patient. */
-const SCAN_ACTIONS = new Set<AuditAction>(['SCAN_UPLOADED', 'SCAN_VIEWED', 'SCAN_WITHDRAWN', 'SCAN_PINS_UPDATED']);
+const SCAN_ACTIONS = new Set<AuditAction>([
+  'SCAN_UPLOADED',
+  'SCAN_VIEWED',
+  'SCAN_WITHDRAWN',
+  'SCAN_PINS_UPDATED',
+  'SCAN_VIEW_SETTINGS_UPDATED',
+]);
 
 const PATIENT_ACTIONS = new Set<AuditAction>([
   'PATIENT_CREATED',

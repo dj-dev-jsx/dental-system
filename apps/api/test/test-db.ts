@@ -22,6 +22,6 @@ export async function resetDatabase(
   const [{ name }] = await owner.$queryRaw<{ name: string }[]>`SELECT current_database() AS name`;
   if (!name.endsWith('_test')) throw new Error(`Refusing to empty database ${name}`);
   await owner.$executeRaw`TRUNCATE clinic_settings, users, sessions, patients, audit_logs, appointments,
-    patient_accounts, patient_sessions, patient_tokens, tooth_records, patient_scans, scan_tooth_pins`;
+    patient_accounts, patient_sessions, patient_tokens, tooth_records, patient_scans, scan_tooth_pins, scan_view_settings`;
   await owner.clinicSettings.create({ data: { name: 'Sample Dental Clinic', ...settings, id: 1 } });
 }

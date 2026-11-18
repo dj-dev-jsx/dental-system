@@ -35,9 +35,9 @@ const samePins = (a: ViewPin[], b: ViewPin[]) =>
   a.length === b.length && a.every((p) => b.some((q) => q.tooth === p.tooth && q.at.every((v, i) => v === p.at[i])))
 
 /**
- * Marking mode: the dentist clicks the middle of each tooth in turn, as the app suggests the
- * next number. Pins can be dragged, removed, skipped or placed for any number. Nothing is
- * detected automatically. Saved all at once.
+ * Marking by hand, the fallback when the automatic check can't find the teeth: the dentist
+ * clicks the middle of each tooth in turn, as the app suggests the next number. Pins can be
+ * dragged, removed, skipped or placed for any number. Saved all at once.
  */
 export function MarkTeeth({ patientId, scan, layer, pins, onPins, panel, onDone }: Props) {
   const { viewer } = layer
@@ -363,11 +363,21 @@ export function MarkTeeth({ patientId, scan, layer, pins, onPins, panel, onDone 
 }
 
 /** Every adult tooth as a button, in chart order (18 to 28 over 48 to 38). */
-function TeethPicker({ placed, current, onPick }: { placed: Set<FdiCode>; current: FdiCode | null; onPick: (tooth: FdiCode) => void }) {
+export function TeethPicker({
+  placed,
+  current,
+  onPick,
+  label = 'Choose the tooth to place',
+}: {
+  placed: Set<FdiCode>
+  current: FdiCode | null
+  onPick: (tooth: FdiCode) => void
+  label?: string
+}) {
   const first = useRef<HTMLButtonElement>(null)
   useEffect(() => first.current?.focus(), [])
   return (
-    <div id="tooth-picker" role="group" aria-label="Choose the tooth to place" className="mt-2.5 border-t border-white/15 pt-2.5">
+    <div id="tooth-picker" role="group" aria-label={label} className="mt-2.5 border-t border-white/15 pt-2.5">
       {(['upper', 'lower'] as const).map((row) => (
         <div key={row} className="grid grid-cols-8 gap-1 sm:grid-cols-16 [&+&]:mt-1">
           {ARCH_ORDER[row].map((tooth, i) => (

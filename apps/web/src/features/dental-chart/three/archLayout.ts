@@ -147,3 +147,49 @@ export function buildPlacedTooth(code: FdiCode): BufferGeometry {
   geometry.computeVertexNormals()
   return geometry
 }
+
+/**
+ * The middle of a tooth's biting surface (or incisal edge), in chart coordinates: where a
+ * dentist puts the tooth's pin on a scan. The lower teeth are given with the jaw closed; the
+ * caller swings them with the jaw (see JAW_HINGE).
+ */
+export function toothBitePoint(code: FdiCode): Vector3 {
+  const { quadrant, position } = parseFdi(code)
+  const jaw = jawOf(code)
+  const side = quadrant === 1 || quadrant === 4 ? -1 : 1
+  const slot = buildSlots(jaw, side)[position - 1]
+  // In the tooth's own axes +y is toward the biting surface: average the top 1.5 mm of the crown.
+  const local = buildToothGeometry(toothSpec(jaw, position), Number(code)).getAttribute('position')
+  let top = -Infinity
+  for (let i = 0; i < local.count; i++) top = Math.max(top, local.getY(i))
+  let x = 0
+  let z = 0
+  let n = 0
+  for (let i = 0; i < local.count; i++) {
+    if (local.getY(i) < top - 1.5) continue
+    x += local.getX(i)
+    z += local.getZ(i)
+    n++
+  }
+  return new Vector3(x / n, top - 0.75, z / n).applyMatrix4(slot.matrix)
+}
+
+/**
+ * The middle of a tooth's neck, where the crown meets the root (the gum margin sits 0.5 mm
+ * above it, see gumGeometry), in chart coordinates with the jaw closed, as toothBitePoint.
+ */
+export function toothNeckPoint(code: FdiCode): Vector3 {
+  const { quadrant, position } = parseFdi(code)
+  const side = quadrant === 1 || quadrant === 4 ? -1 : 1
+  return new Vector3().applyMatrix4(buildSlots(jawOf(code), side)[position - 1].matrix)
+}
+
+/**
+ * The matrix placing a tooth's own geometry (neck at the origin, +y toward the biting surface,
+ * +x away from the midline, +z toward the cheek) in chart coordinates, jaw closed.
+ */
+export function toothMatrix(code: FdiCode): Matrix4 {
+  const { quadrant, position } = parseFdi(code)
+  const side = quadrant === 1 || quadrant === 4 ? -1 : 1
+  return buildSlots(jawOf(code), side)[position - 1].matrix.clone()
+}
